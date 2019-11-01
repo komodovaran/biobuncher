@@ -31,13 +31,10 @@ tracks = pd.read_csv(track_path)
 frame_n = 0
 frame = video[frame_n]
 
-plt.imshow(frame)
 tracks_n = tracks.query("frame == 0")
-
+indices = np.indices(frame.shape)
 ctr_masks = np.zeros(frame.shape)
 bg_masks = np.zeros(frame.shape)
-indices = np.indices(frame.shape)
-
 for i in tracks_n.itertuples():
     x, y = i.x, i.y
     ctr_mask, bg_mask = lib.math.circle_mask(
@@ -51,4 +48,12 @@ for i in tracks_n.itertuples():
         frame, roi_mask=ctr_mask, bg_mask=bg_mask
     )
 
+    ctr_masks += ctr_mask
+    bg_masks += bg_mask
+
+ctr_cmap, bg_cmap = get_cmaps()
+
+plt.imshow(skimage.exposure.rescale_intensity(frame), cmap = "Greys_r")
+plt.imshow(ctr_masks, cmap = ctr_cmap, clim = (0.5, 1), alpha = 0.6)
+plt.imshow(bg_masks, cmap = bg_cmap, clim = (0.5, 1), alpha = 0.6)
 plt.show()

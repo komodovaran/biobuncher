@@ -37,7 +37,7 @@ def circle_mask(inner_area, outer_area, gap_space, yx, indices):
     return center, bg_ring
 
 
-def roi_intensity(array, roi_mask, bg_mask):
+def roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
     """
     Extracts get_intensities from TIFF stack, given ROI and BG masks.
     Intensities are calculated as medians of all pixel values within the ROIs.
@@ -50,8 +50,8 @@ def roi_intensity(array, roi_mask, bg_mask):
         Numpy mask for center
     bg_mask:
         Numpy mask for background
-    raw:
-        Whether to return raw signal/background get_intensities. Otherwise will return signal-background and background as zeroes.
+    bg_mode:
+        Type of background estimation to use
 
     Returns
     -------
@@ -64,17 +64,60 @@ def roi_intensity(array, roi_mask, bg_mask):
     roi_pixel_sum_intensity = np.sum(array[roi_mask])
 
     # median background intensity (single pixel)
-    median_bg_pixel_intensity = np.median(array[bg_mask])
+    if bg_mode == "median":
+        bg_pixel_intensity = np.median(array[bg_mask])
+    elif bg_mode == "min":
+        bg_pixel_intensity = np.min(array[bg_mask])
+    else:
+        raise ValueError("Background mode must be 'median' or 'min'")
 
     # Count the number of signal pixels
     roi_n_pixels = np.sum(roi_mask)
 
     # Subtract background value from every pixel
     corrected_intensity = roi_pixel_sum_intensity - (
-        median_bg_pixel_intensity * roi_n_pixels
+        bg_pixel_intensity * roi_n_pixels
     )
 
     # Get average signal pixel intensity
     mean_corrected_intensity = corrected_intensity / roi_n_pixels
 
-    return mean_corrected_intensity, median_bg_pixel_intensity
+    return mean_corrected_intensity, bg_pixel_intensity
+
+
+def calc_steplength(df, x_col, y_col):
+    """
+    Gets the calc_steplength for every step in (x,y) using Euclidian distance.
+    The function returns inplace
+    """
+    df[["dif_x", "dif_y"]] = (
+        df[[x_col, y_col]]
+        .rolling(window=2)
+        .apply(lambda row: row[1] - row[0], raw=True)
+    )
+    df["steplength"] = np.sqrt(df["dif_x"] ** 2 + df["dif_y"] ** 2)
+    df.drop(["dif_x", "dif_y"], axis=1, inplace=True)
+    return df["steplength"]
+
+
+def normalize_tensor(X_raw, feature_wise=False):
+    """
+    Normalizes each sample in a tensor to max value. Can be done for all features,
+    or separately
+    """
+    if feature_wise:
+        maxval = np.max(X_raw, axis=1, keepdims=True)
+    else:
+        maxval = np.max(X_raw, axis=(1, 2), keepdims=True)
+    X = X_raw / maxval
+    return X
+
+
+def z_score_norm(x):
+    """
+    Z-score normalizes array
+    """
+    return (x - np.mean(x)) / np.std(x)
+
+def maxabs_norm(x):
+    return x / x.max(axis = (0, 1))

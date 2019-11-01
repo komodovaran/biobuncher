@@ -2,17 +2,15 @@ import lib.config as c
 import lib.utils
 import pandas as pd
 import numpy as np
-import time
 import matplotlib.pyplot as plt
 import skimage.io
-from multiprocessing import Pool, cpu_count
 
-from lib.math import circle_mask, roi_intensity
-from lib.utils import timeit, groupby_parallel_apply
+from lib.math import circle_mask, roi_intensity, calc_steplength
+from lib.utils import groupby_parallel_apply
 
 if __name__ == "__main__":
     track_df = pd.read_csv(
-        "results/_A_CLTA-TagRFP EGFP-Aux1-A7D2_Cell1_1s_TagRFP_GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif.csv"
+        "results/2_intensities/A_CLTA-TagRFP EGFP-Aux1-A7D2_Cell1_1s_TagRFP_GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif.csv"
     )
 
     video_c0_path = "data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/TagRFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif"
@@ -25,8 +23,8 @@ if __name__ == "__main__":
         raise ValueError("Videos are not equal shapes")
 
     video = np.stack((video_c0, video_c1), axis=-1)  # Stack with channels LAST
-    print("Warning: Set to < 20 particles")
-    track_df = track_df.query("particle < 20")
+    print("Warning: Set to < 50 particles")
+    track_df = track_df.query("particle < 50")
     indices = np.indices(video[0, ..., 0].shape)
 
     # Initialize needed columns
@@ -42,7 +40,7 @@ if __name__ == "__main__":
     # Initialize
     track_df[keys] = 0
 
-    def _f(group):
+    def _get_intensities(group):
         """Function to run in parallel"""
         roi_intensities = np.zeros(shape=(len(group), dim * 2))
         for j, row in enumerate(group.itertuples()):
@@ -61,15 +59,18 @@ if __name__ == "__main__":
                 roi_intensity(frame[..., chan], *masks) for chan in range(dim)
             ]
         group[keys] = roi_intensities
+        calc_steplength(group, "x", "y")
         return group
 
-    df = groupby_parallel_apply(track_df.groupby("particle"), _f)
-    df.to_csv("results/tracks_intensities.csv")
-    
+    df = groupby_parallel_apply(track_df.groupby("particle"), _get_intensities)
+
     fig, ax = plt.subplots(nrows=3)
     for _, grp in df.groupby("particle"):
-        ax[0].plot(grp["frame"], grp["int_c0"] - grp["bg_c0"])
-        ax[1].plot(grp["frame"], grp["int_c1"] - grp["bg_c1"])
+        ax[0].plot(grp["int_c0"] - grp["bg_c0"])
+        ax[1].plot(grp["signal"])
+        ax[2].plot(grp["steplength"])
 
-        ax[2].plot(grp["frame"], grp["signal"])
+    ax[0].legend()
+    ax[1].legend()
+    plt.legend()
     plt.show()
