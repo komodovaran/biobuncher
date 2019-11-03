@@ -1,6 +1,6 @@
 import tsfresh
 from tsfresh.feature_extraction import (
-    ComprehensiveFCParameters,
+    MinimalFCParameters, EfficientFCParameters, ComprehensiveFCParameters,
 )
 import numpy as np
 import sklearn.model_selection
@@ -13,92 +13,13 @@ import plotly.express as px
 import sklearn.cluster
 import matplotlib.pyplot as plt
 
-from lib.math import z_score_norm
-
 @st.cache
-def _get_data(length=50, n_each_class=200):
+def _get_data():
     """
-    Make 3 types of sequence data with variable length
+    Loads all traces and converts them to a padded tensor
     """
-    data = []
-    labels = []
-    for _ in range(n_each_class):
-        y_noise = 0
-        x_noisy = np.column_stack(
-            (
-                (
-                    np.cos(np.linspace(0, 5, length))
-                    + np.random.normal(0, 0.5, length)
-                ),
-                (
-                    (
-                        1
-                        + np.sin(np.linspace(0, 5, length))
-                        + np.random.normal(0, 0.5, length)
-                    )
-                ),
-            )
-        )
-
-        y_wavy = 1
-        x_wavy = np.column_stack(
-            (
-                (
-                    np.cos(np.linspace(0, 20, length))
-                    + np.random.normal(0, 0.5, length)
-                ),
-                (
-                    (
-                        1
-                        + np.sin(np.linspace(0, 20, length))
-                        + np.random.normal(0, 0.5, length)
-                    )
-                ),
-            )
-        )
-
-        y_spikes = 2
-        x_spikes = np.column_stack(
-            (
-                (
-                    np.cos(np.linspace(0, 20, length))
-                    + np.random.normal(0, 0.5, length)
-                )
-                ** 2,
-                (
-                    (
-                        1
-                        + np.sin(np.linspace(0, 20, length))
-                        + np.random.normal(0, 0.5, length)
-                    )
-                    ** 2
-                ),
-            )
-        )
-
-        # Randomly cut the begining of traces and fill in with zeroes to mimick short traces
-        zero = np.random.randint(1, length - 10)
-        x_noisy[:zero] = 0
-        x_wavy[:zero] = 0
-        x_spikes[:zero] = 0
-
-        x_noisy, x_wavy, x_spikes = [
-            z_score_norm(x) for x in (x_noisy, x_wavy, x_spikes)
-        ]
-
-        labels.extend([y_noise, y_wavy, y_spikes])
-
-        data.append(x_noisy)
-        data.append(x_wavy)
-        data.append(x_spikes)
-
-    data = np.array(data)
-    data = data.reshape((-1, length, 2))
-    print("original shape ", data.shape)
-    X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
-        data, labels, train_size=0.8, shuffle = True
-    )
-    return X_train, X_test, y_train, y_test
+    X = np.load("results/2_intensities/2_intensities_padded_filtered.npz")["data"]
+    return X
 
 
 @st.cache
@@ -129,7 +50,7 @@ def _remove_redundant_columns(df):
 def _get_clusters(X, n_clusters=3):
     """Performs clustering and PCA for visualization"""
     # decompose first
-    decomposer = sklearn.decomposition.FastICA(n_components = 3)
+    decomposer = sklearn.decomposition.PCA(n_components = 3)
     comps = decomposer.fit_transform(X)
     
     # cluster the decomposed
@@ -143,17 +64,21 @@ def _get_clusters(X, n_clusters=3):
 
 
 if __name__ == "__main__":
-    X_train, *_ = _get_data()
-    df_train = lib.utils.ts_tensor_to_df(X_train)
-    df_train = lib.utils.ts_to_stationary(df_train, groupby = "id")
+    X = _get_data()
+    X = X[..., [0]]
+    st.write(X.shape)
+
+    X = lib.utils.sample_max_normalize_3d(X, squeeze = False)
+    df = lib.utils.ts_tensor_to_df(X)
+    # df = lib.utils.ts_to_stationary(df, groupby = "id")
     st.subheader("timeseries df")
-    st.write(df_train.head())
-    
-    
+    st.write(df)
+
     st.subheader("Features extracted and redundant columns removed")
-    features = _extract_ts_features(df_train)
-    # features = _remove_redundant_columns(features)
+    features = _extract_ts_features(df)
+    features = _remove_redundant_columns(features)
     st.write(features)
+    st.write(features.columns)
 
     st.subheader("Standard scaled and PCA")
     scaler = sklearn.preprocessing.StandardScaler()
@@ -177,7 +102,7 @@ if __name__ == "__main__":
         
         for i, ax in zip(selected_idx, axes):
             xi_true = lib.utils.remove_zero_padding(
-                arr_true = X_train[i], arr_pred = None, padding = "before"
+                arr_true = X[i], arr_pred = None, padding = "before"
             )
             xi_true = np.squeeze(xi_true)
             

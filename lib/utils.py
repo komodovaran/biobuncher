@@ -50,9 +50,6 @@ def groupby_parallel_apply(grouped_df, func, concat=True):
     return results_list
 
 
-#
-
-
 def pairwise(array):
     """Unpacks elements of an array (1,2,3,4...) into pairs, i.e. (1,2), (3,4), ..."""
     return zip(array[0::2], array[1::2])
@@ -176,20 +173,37 @@ def ts_tensor_to_df(X):
     return df
 
 
-def ts_to_stationary(df, groupby=None):
+def ts_to_stationary(df, groupby = None):
     """
     Differences over the timeseries datafram
     to make it stationary. Pads beginning.
     """
+    # Avoid breaking these columns in groupby
     time_col = df.pop("time")
     id_col = df["id"]
-    if groupby is not None:
-        g = df.groupby("id")
-    else:
-        g = df
 
-    g = g.diff().replace(np.nan, 0)
-    g.join()
-    
-    
+    # Group by ID
+    g = df.groupby("id") if groupby is not None else df
+    g = g.diff().replace(np.nan, 0, inplace = False)
+
+    # Add columns back
+    g["time"] = time_col
+    g["id"] = id_col
     return g
+
+
+def sample_max_normalize_3d(X, squeeze=True):
+    """
+    Sample-wise max-value normalization of 3D array (tensor).
+    This is not feature-wise normalization, to keep the ratios between features intact!
+    """
+    if len(X.shape) == 2:
+        X = X[np.newaxis, :, :]
+    assert len(X.shape) == 3
+    arr_max = np.max(X, axis=(1), keepdims=True)
+    X = X * (1/arr_max)
+
+    if squeeze:
+        return np.squeeze(X)
+    else:
+        return X

@@ -10,7 +10,6 @@ import lib.models
 import time
 
 import tensorflow as tf
-
 from lib.models import model_builder
 
 
@@ -74,7 +73,6 @@ def _prepare_data(X, train_size=0.9):
 if __name__ == "__main__":
     X_raw = _get_data()
     X = lib.math.normalize_tensor(X_raw)
-    print(X_raw.shape)
     MODEL_DIR = None
     N_TIMESTEPS = X.shape[1]
     N_FEATURES = X.shape[2]
