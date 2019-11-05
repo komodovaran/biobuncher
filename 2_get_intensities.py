@@ -5,11 +5,10 @@ import numpy as np
 import pandas as pd
 import skimage.io
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 import lib.config as C
 import lib.utils
-from lib.math import circle_mask, roi_intensity, calc_steplength
+from lib.math import calc_steplength, circle_mask, roi_intensity
 from lib.utils import groupby_parallel_apply, pairwise
 
 
@@ -27,9 +26,9 @@ def _get_paths():
     path_list = []
     for path0, path1 in zip(video_c0_paths, video_c1_paths):
         track_path = os.path.join(
-            "results/1_tracks/", path0.lstrip("data/").replace("/", "_") + ".csv"
+            "results/tracks/", path0.lstrip("data/").replace("/", "_") + ".csv"
         )
-        results_path = track_path.replace("1_tracks", "2_intensities")
+        results_path = track_path.replace("tracks", "intensities")
         path_list.append((path0, path1, track_path, results_path))
     return path_list
 

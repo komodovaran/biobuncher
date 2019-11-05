@@ -1,3 +1,9 @@
-import matplotlib.pyplot as plt
+from glob import glob
+def _get_latest_model(model_dir):
+    """
+    Returns most recent model
+    """
+    model_dir += "/model_???"
 
-print(2 + 2)
+
+d = _get_latest_model("./logs/20191104-195104/")

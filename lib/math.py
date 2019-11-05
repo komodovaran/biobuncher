@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import interp1d
 
 
 def circle_mask(inner_area, outer_area, gap_space, yx, indices):
@@ -102,7 +103,7 @@ def calc_steplength(df, x_col, y_col):
 
 def normalize_tensor(X_raw, feature_wise=False):
     """
-    Normalizes each sample in a tensor to max value. Can be done for all features,
+    Normalizes each sample in a tensor to max value. Can be done for all extracted_features,
     or separately
     """
     if feature_wise:
@@ -120,4 +121,19 @@ def z_score_norm(x):
     return (x - np.mean(x)) / np.std(x)
 
 def maxabs_norm(x):
+    """
+    Maxabs normalizes array
+    """
     return x / x.max(axis = (0, 1))
+
+
+def resample_timeseries(y, new_length = None):
+    """
+    Resamples timeseries by linear interpolation
+    """
+    xpts = range(len(y))
+    f = interp1d(xpts, y)
+    if new_length is None:
+        new_length = len(xpts)
+    newy = f(np.linspace(min(xpts), max(xpts), new_length))
+    return newy

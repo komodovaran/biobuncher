@@ -152,7 +152,7 @@ if __name__ == "__main__":
     
     st.subheader("Features extracted and redundant columns removed")
     features = _extract_ts_features(df_train)
-    # features = _remove_redundant_columns(features)
+    # extracted_features = _remove_redundant_columns(extracted_features)
     st.write(features)
 
     st.subheader("Standard scaled and PCA")

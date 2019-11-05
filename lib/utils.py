@@ -195,7 +195,7 @@ def ts_to_stationary(df, groupby = None):
 def sample_max_normalize_3d(X, squeeze=True):
     """
     Sample-wise max-value normalization of 3D array (tensor).
-    This is not feature-wise normalization, to keep the ratios between features intact!
+    This is not feature-wise normalization, to keep the ratios between extracted_features intact!
     """
     if len(X.shape) == 2:
         X = X[np.newaxis, :, :]

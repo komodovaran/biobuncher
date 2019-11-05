@@ -11,7 +11,7 @@ def _get_data(include_steplength=False):
     """
     Loads all traces and converts them to a padded tensor
     """
-    df = pd.DataFrame(pd.read_hdf("results/2_intensities/2_intensities.h5"))
+    df = pd.DataFrame(pd.read_hdf("results/intensities/2_intensities.h5"))
     df = df.groupby(["file", "particle"]).filter(lambda x: len(x) > 50)
 
     len_per_group = df.groupby(["file", "particle"]).apply(lambda x: len(x))

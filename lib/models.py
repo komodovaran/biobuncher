@@ -2,11 +2,10 @@ import datetime
 from glob import glob
 from pathlib import Path
 
+import tensorflow.python as tf
 from tensorflow.python.keras.callbacks import *
 from tensorflow.python.keras.layers import *
 from tensorflow.python.keras.models import *
-import tensorflow.python as tf
-import tensorflow.keras.backend as K
 
 
 class ResidualConv1D:
@@ -122,7 +121,7 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of features in data
+        Number of extracted_features in data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
@@ -139,12 +138,15 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     """
 
     repeat_dim = (n_timesteps // latent_dim) * latent_dim
-    lstm_units = 50
+    lstm_units = 10
+
+    if repeat_dim != n_timesteps:
+        raise ValueError("Latent dim {} cannot be multiplied up to full dim {}".format(latent_dim, n_timesteps))
 
     # ENCODER
     inputs = Input(shape=(None, n_features))
     ez = LSTM(units=lstm_units, return_sequences=False)(inputs)
-    ez = ELU()(ez)
+    ez = Activation("relu")(ez)
     eo = Dense(units=latent_dim)(ez)
 
     encoder = Model(inputs=inputs, outputs=eo)
@@ -153,7 +155,7 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     latent_inputs = Input(shape=(latent_dim,))
     dz = RepeatVector(repeat_dim)(latent_inputs)
     dz = LSTM(units=lstm_units, return_sequences=True)(dz)
-    dz = ELU()(dz)
+    dz = Activation("relu")(dz)
     outputs = TimeDistributed(Dense(n_features))(dz)
 
     decoder = Model(inputs=latent_inputs, outputs=outputs)
@@ -170,7 +172,7 @@ def build_conv_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of features in data
+        Number of extracted_features in data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
@@ -243,7 +245,7 @@ def build_simple_conv_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of features in data
+        Number of extracted_features in data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
@@ -317,7 +319,7 @@ def build_residual_conv_autoencoder(
     Parameters
     ----------
     n_features:
-        Number of features in data
+        Number of extracted_features in data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
@@ -340,7 +342,7 @@ def build_residual_conv_autoencoder(
     ei = Input((n_timesteps, n_features))
     ez = Conv1D(2, 7, **p)(ei)
     ez = BatchNormalization()(ez)
-    ez = Activation("elu")(ez)
+    ez = Activation(activation)(ez)
 
     ez = ResidualConv1D(4, 15, activation, pool=True)(ez)
     ez = ResidualConv1D(4, 15, activation)(ez)
@@ -396,7 +398,7 @@ def model_builder(model_dir, model_build_f, build_args):
         try:
             print("Loading model from specified directory")
             latest = sorted(
-                glob(model_dir.joinpath("model_???").as_posix()), reverse=True
+                glob(Path(model_dir).joinpath("model_???").as_posix()), reverse = True
             )[0]
             initial_epoch = int(
                 latest[-3:]
@@ -410,11 +412,11 @@ def model_builder(model_dir, model_build_f, build_args):
             model = model_build_f(*build_args)
 
     # callbacks
-    tb = TensorBoard(log_dir=model_dir)
+    # tb = TensorBoard(log_dir = model_dir)
     mca = ModelCheckpoint(
-        filepath=model_dir.joinpath("model_{epoch:03d}").as_posix(),
-        save_best_only=True,
+        filepath = model_dir.joinpath("model_{epoch:03d}").as_posix(),
+        save_best_only = True,
     )
 
-    callbacks = [mca, tb]
+    callbacks = [mca]
     return model, callbacks, initial_epoch
