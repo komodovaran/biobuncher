@@ -18,7 +18,7 @@ def _get_paths():
     """
     # Primary channel is TagRFP
     video_c0_paths, video_c1_paths = [
-        glob("data/**/{}/*.tif".format(c), recursive=True) for c in ("TagRFP", "EGFP")
+        glob("tom_data/**/{}/*.tif".format(c), recursive=True) for c in ("TagRFP", "EGFP")
     ]
     video_c0_paths, video_c1_paths = [sorted(p) for p in (video_c0_paths, video_c1_paths)]
 
@@ -26,7 +26,7 @@ def _get_paths():
     path_list = []
     for path0, path1 in zip(video_c0_paths, video_c1_paths):
         track_path = os.path.join(
-            "results/tracks/", path0.lstrip("data/").replace("/", "_") + ".csv"
+            "results/tracks/", path0.lstrip("tom_data/").replace("/", "_") + ".csv"
         )
         results_path = track_path.replace("tracks", "intensities")
         path_list.append((path0, path1, track_path, results_path))

@@ -25,7 +25,7 @@ def z_score_norm(x):
 @st.cache
 def _get_data(length=50, n_each_class=200):
     """
-    Make 3 types of sequence data with variable length
+    Make 3 types of sequence tom_data with variable length
     """
     data = []
     labels = []
@@ -143,10 +143,10 @@ if __name__ == "__main__":
     BATCH_SIZE = 64
     LATENT_DIM = 50
 
-    st.subheader("Generated data shape:")
+    st.subheader("Generated tom_data shape:")
     st.write(X_train.shape)
 
-    st.subheader("Raw data plots")
+    st.subheader("Raw tom_data plots")
     fig, ax = plt.subplots(nrows=3, ncols=2)
     ax = ax.ravel()
     for i in range(6):
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     X_test, X_pred, latents = _get_predictions_vae(X_test)
     X_pred = X_pred.reshape(-1, N_TIMESTEPS, N_FEATURES)
 
-    st.write("Test data shape: ", X_test.shape)
+    st.write("Test tom_data shape: ", X_test.shape)
 
     n_clusters = st.sidebar.slider(
         min_value=1,

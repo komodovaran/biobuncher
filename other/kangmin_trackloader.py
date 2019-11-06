@@ -202,7 +202,7 @@ def pullMatrixData(cellNum, parentFolderPath, numConsecPVal = 3, pvalCutOff = .0
 # 
 # INPUTS:
 #
-# data - pd.dataframe | a dataframe with rows as tracks and columns with all / some of the following:
+# tom_data - pd.dataframe | a dataframe with rows as tracks and columns with all / some of the following:
 #        'frame', 'lifetime', 'max_intensity', 'background', 'totaldisp', 'max_msd', 'catIdx', 'aux', 
 #        'avg_rise', 'avg_dec', 'risevsdec', 'avg_mom_rise', 'avg_mom_dec', 'risevsdec_mom'
 #
@@ -227,11 +227,12 @@ def filterMatrixData(data, dropNA = False, catsToUse = [1,2,3,4,5,6,7,8], colsTo
 if __name__ == "__main__":
     @st.cache
     def _get_data():
-        df = pullMatrixData(cellNum = 1, parentFolderPath = "/Users/Joh/Desktop/PythonScripts/KangminData/")
+        df = pullMatrixData(cellNum = 1, parentFolderPath = "/Users/Johannes/Desktop/PythonScripts/kangmin_data/")
         return df
     df = _get_data()
     st.write(df.head())
 
     for i, (_, group )in enumerate(df.groupby("trackNum")):
-        if i == 0:
-            st.write(group)
+        print(group)
+        if i == 5:
+            break

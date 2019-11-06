@@ -121,20 +121,20 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of extracted_features in data
+        Number of extracted_features in tom_data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
-        Number of timesteps in data
+        Number of timesteps in tom_data
 
     Returns
     -------
     encoder:
-        Extract latent vector from data
+        Extract latent vector from tom_data
     decoder:
-        Decode latent vector to data
+        Decode latent vector to tom_data
     autoencoder:
-        Encode data to latent vector and recreate from that
+        Encode tom_data to latent vector and recreate from that
     """
 
     repeat_dim = (n_timesteps // latent_dim) * latent_dim
@@ -172,20 +172,20 @@ def build_conv_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of extracted_features in data
+        Number of extracted_features in tom_data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
-        Number of timesteps in data
+        Number of timesteps in tom_data
 
     Returns
     -------
     encoder:
-        Extract latent vector from data
+        Extract latent vector from tom_data
     decoder:
-        Decode latent vector to data
+        Decode latent vector to tom_data
     autoencoder:
-        Encode data to latent vector and recreate from that
+        Encode tom_data to latent vector and recreate from that
     """
     p = {"padding": "same", "kernel_initializer": "he_uniform"}
 
@@ -245,20 +245,20 @@ def build_simple_conv_autoencoder(n_features, latent_dim, n_timesteps):
     Parameters
     ----------
     n_features:
-        Number of extracted_features in data
+        Number of extracted_features in tom_data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
-        Number of timesteps in data
+        Number of timesteps in tom_data
 
     Returns
     -------
     encoder:
-        Extract latent vector from data
+        Extract latent vector from tom_data
     decoder:
-        Decode latent vector to data
+        Decode latent vector to tom_data
     autoencoder:
-        Encode data to latent vector and recreate from that
+        Encode tom_data to latent vector and recreate from that
     """
     p = {"padding": "same", "kernel_initializer": "he_uniform"}
 
@@ -319,20 +319,20 @@ def build_residual_conv_autoencoder(
     Parameters
     ----------
     n_features:
-        Number of extracted_features in data
+        Number of extracted_features in tom_data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:
-        Number of timesteps in data
+        Number of timesteps in tom_data
 
     Returns
     -------
     encoder:
-        Extract latent vector from data
+        Extract latent vector from tom_data
     decoder:
-        Decode latent vector to data
+        Decode latent vector to tom_data
     autoencoder:
-        Encode data to latent vector and recreate from that
+        Encode tom_data to latent vector and recreate from that
     """
     p = {"padding": "same", "kernel_initializer": "he_uniform"}
 
@@ -344,14 +344,14 @@ def build_residual_conv_autoencoder(
     ez = BatchNormalization()(ez)
     ez = Activation(activation)(ez)
 
-    ez = ResidualConv1D(4, 15, activation, pool=True)(ez)
-    ez = ResidualConv1D(4, 15, activation)(ez)
+    ez = ResidualConv1D(4, 31, activation, pool=True)(ez)
+    ez = ResidualConv1D(4, 31, activation)(ez)
 
-    ez = ResidualConv1D(8, 7, activation, pool=True)(ez)
-    ez = ResidualConv1D(8, 7, activation)(ez)
+    ez = ResidualConv1D(8, 15, activation, pool=True)(ez)
+    ez = ResidualConv1D(8, 15, activation)(ez)
 
-    ez = ResidualConv1D(16, 3, activation, pool=True)(ez)
-    ez = ResidualConv1D(16, 3, activation)(ez)
+    ez = ResidualConv1D(16, 7, activation, pool=True)(ez)
+    ez = ResidualConv1D(16, 7, activation)(ez)
 
     ez = Flatten()(ez)  # 800
     eo = Dense(units=latent_dim, activation=None)(ez)  # 10
@@ -365,14 +365,14 @@ def build_residual_conv_autoencoder(
     dz = BatchNormalization()(dz)
     dz = Activation(activation)(dz)
 
-    dz = ResidualConv1D(16, 3, activation, pool=True)(dz)
-    dz = ResidualConv1D(16, 3, activation)(dz)
+    dz = ResidualConv1D(16, 7, activation, pool=True)(dz)
+    dz = ResidualConv1D(16, 7, activation)(dz)
 
-    dz = ResidualConv1D(8, 7, activation, pool=True)(dz)
-    dz = ResidualConv1D(8, 7, activation)(dz)
+    dz = ResidualConv1D(8, 15, activation, pool=True)(dz)
+    dz = ResidualConv1D(8, 15, activation)(dz)
 
-    dz = ResidualConv1D(4, 15, activation, pool=True)(dz)
-    dz = ResidualConv1D(4, 15, activation)(dz)
+    dz = ResidualConv1D(4, 31, activation, pool=True)(dz)
+    dz = ResidualConv1D(4, 31, activation)(dz)
 
     do = Conv1D(2, 1, **p, activation=None)(dz)  # 50x2
 

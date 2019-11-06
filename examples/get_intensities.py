@@ -13,8 +13,8 @@ if __name__ == "__main__":
         "results/intensities/A_CLTA-TagRFP EGFP-Aux1-A7D2_Cell1_1s_TagRFP_GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif.csv"
     )
 
-    video_c0_path = "data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/TagRFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif"
-    video_c1_path = "data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/EGFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_GFP  TIRF Q-1.tif"
+    video_c0_path = "tom_data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/TagRFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif"
+    video_c1_path = "tom_data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/EGFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_GFP  TIRF Q-1.tif"
 
     video_c0, video_c1 = [
         skimage.io.imread(path) for path in (video_c0_path, video_c1_path)

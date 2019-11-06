@@ -38,7 +38,7 @@ def flatten_list(input_list, as_array=False):
 
 
 @timeit
-def groupby_parallel_apply(grouped_df, func, concat=True):
+def groupby_parallel_apply(grouped_df, func, concat=True) -> pd.DataFrame:
     """
     Runs Pandas groupby functions in parallel.
     Set concat = True to concatenate subgroups to a new dataframe
@@ -81,7 +81,7 @@ def batch_to_numpy(tf_data, include_label=False, n_batches=-1):
         return x
 
 
-def rle(arr):
+def run_length_encoding(arr):
     """
     run length encoding. Partial credit to R rle function.
     Multi datatype arrays catered for including non Numpy
@@ -117,7 +117,7 @@ def remove_zero_padding(arr_true, arr_pred=None, padding="before"):
     -------
     (arr_true, arr_pred) with padded indices removed
     """
-    runlen, *_ = rle(arr_true)
+    runlen, *_ = run_length_encoding(arr_true)
 
     if arr_pred is not None:
         if len(arr_true) != len(arr_pred):

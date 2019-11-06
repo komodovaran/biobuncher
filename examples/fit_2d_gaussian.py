@@ -118,7 +118,7 @@ if __name__ == "__main__":
         Xi, Yi = create_grid(h=H, w=W)
         n_spots = 500
 
-        # create data
+        # create tom_data
         img = []
         for _ in range(n_spots):
             POSX = np.random.randint(0, W)
@@ -140,7 +140,7 @@ if __name__ == "__main__":
         img = img + np.random.normal(5, 5, len(img.ravel())).reshape(img.shape)
     else:
         img = skimage.io.imread(
-            "../data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/TagRFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif"
+            "../tom_data/A_CLTA-TagRFP EGFP-Aux1-A7D2/Cell1_1s/TagRFP/GFP-ND20 Exp100ms RFP-ND12 Exp60ms - 1_Cy3  TIRF Q-1.tif"
         )
         img = img.mean(axis = 0) # get first frame
 

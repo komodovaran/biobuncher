@@ -8,7 +8,7 @@ matplotlib.use("Qt5Agg")
 
 np.random.seed(42)
 
-# Generate data x, y for scatter and an array of images.
+# Generate tom_data x, y for scatter and an array of images.
 x = np.arange(20)
 y = np.random.rand(len(x))
 arr = np.empty((len(x), 10, 10))
@@ -27,7 +27,7 @@ line, = ax.plot(x, y, ls = "", marker = "o")
 # create the annotations box
 im = OffsetImage(arr[0, :, :], zoom = 5)
 xybox = (50., 50.)
-ab = AnnotationBbox(im, (0, 0), xybox = xybox, xycoords = 'data',
+ab = AnnotationBbox(im, (0, 0), xybox = xybox, xycoords = 'tom_data',
                     boxcoords = "offset points", pad = 0.3, arrowprops = dict(arrowstyle = "->"))
 # add it to the axes and make it invisible
 ax.add_artist(ab)

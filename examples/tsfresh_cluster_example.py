@@ -18,7 +18,7 @@ from lib.math import z_score_norm
 @st.cache
 def _get_data(length=50, n_each_class=200):
     """
-    Make 3 types of sequence data with variable length
+    Make 3 types of sequence tom_data with variable length
     """
     data = []
     labels = []

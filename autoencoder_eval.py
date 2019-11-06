@@ -1,6 +1,5 @@
 from glob import glob
-from pathlib import Path
-
+import os.path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -13,6 +12,7 @@ from tensorflow.python import keras
 import lib.math
 import lib.plotting
 import lib.utils
+import sklearn.preprocessing
 
 np.random.seed(0)
 
@@ -23,15 +23,16 @@ def _get_data():
     Loads all traces
     """
     X_true = np.load(
-        "results/intensities/intensities_resampled_minlen15_relen50.npz"
+        "results/intensities/cme_tracks_resampled_median.npz"
     )["data"]
     X = lib.math.normalize_tensor(X_true[:, :, [0, 1]], feature_wise=True)
     return X_true, X
 
+def _get_latest(MODEL_DIR):
+    return sorted(glob(os.path.join(MODEL_DIR, "model*")))[-1]
 
 def _get_clusters(X, n_clusters, n_components):
     """Performs clustering and PCA for visualization"""
-    # Decompose data (1000+ dimensional) into something more managable
     decomposer = sklearn.decomposition.PCA(n_components=n_components)
     X_de = decomposer.fit_transform(X)
 
@@ -50,15 +51,17 @@ def _get_clusters(X, n_clusters, n_components):
 
 if __name__ == "__main__":
     # remember the /
-    MODEL_DIR = "logs/20191104-195104/model_029/"
+    MODEL_DIR = "logs/20191105-194218/"
 
     X_true, X = _get_data()
-    model = keras.models.load_model(MODEL_DIR)
+    model = keras.models.load_model(_get_latest(MODEL_DIR))
     encoder = model.layers[1]
 
     st.write("Model loaded: ", MODEL_DIR)
 
     features = encoder.predict(X)
+    # Standard scale features, because the model output is not bounded
+    features = sklearn.preprocessing.minmax_scale(features)
 
     st.subheader("Encoded features")
     st.write(features)
@@ -81,7 +84,7 @@ if __name__ == "__main__":
     fig = px.scatter_3d(pca_z.sample(frac=0.5), x=0, y=1, z=2, color="label")
     st.write(fig)
 
-    st.subheader("Number of traces, N = {}".format(len(X_true)))
+    st.subheader("Average Clathrin/Auxilin trace. Number of traces, N = {}".format(len(X_true)))
     fig, ax = plt.subplots(nrows=n_clusters, figsize=(6, 10))
     for n in range(n_clusters):
         (selected_idx,) = np.where(clusters == n)
@@ -106,10 +109,7 @@ if __name__ == "__main__":
 
         mean_preds = []
         for i, ax in zip(selected_idx, axes):
-            xi_true = lib.utils.remove_zero_padding(
-                arr_true = X_true[i], arr_pred = None, padding = "before"
-            )
-            xi_true = np.squeeze(xi_true)
+            xi_true = X_true[i]
             mean_preds.append(xi_true)
             lib.plotting.plot_c0_c1(
                 int_c0 = xi_true[:, 0], int_c1 = xi_true[:, 1], ax = ax

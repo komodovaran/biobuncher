@@ -13,7 +13,7 @@ def _get_data():
     Loads all traces
     """
     X = np.load(
-        "results/intensities/intensities_resampled_minlen15_relen50.npz"
+        "results/intensities/cme_tracks_resampled_median.npz"
     )["data"]
     X = X[:, :, [0, 1]]
 
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     X_raw = _get_data()
     X = lib.math.normalize_tensor(X_raw, feature_wise=True)
 
-    MODEL_DIR = "logs/20191104-194140"
+    MODEL_DIR = None
     N_TIMESTEPS = X.shape[1]
     N_FEATURES = X.shape[2]
     CALLBACK_TIMEOUT = 5

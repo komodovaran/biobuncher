@@ -1,4 +1,4 @@
-import os.path
+import pandas as pd
 from glob import glob
 from multiprocessing import Pool, cpu_count
 
@@ -18,7 +18,7 @@ def _find_tracks(path):
     """
     Set tracking parameters through tests
     """
-    save_name = path.lstrip("data/").replace("/", "_")
+    save_name = path.lstrip("tom_data/").replace("/", "_")
     video = skimage.io.imread(path)
     features = tp.batch(
         frames = video,
@@ -28,12 +28,14 @@ def _find_tracks(path):
     )
 
     # memory keeps track of particle for a number of frames if mass is below cutoff
-    tracks = tp.link_df(features, search_range = 1, memory = 1)
-    tracks = tp.filter_stubs(tracks, threshold = 15)
-    tracks.to_csv(os.path.join("results/tracks/", save_name + ".csv"))
+    tracks = tp.link_df(features, search_range = c.TRACK_RANGE, memory = c.TRACK_MEMORY)
+    tracks = tp.filter_stubs(tracks, threshold = c.LENGTH_THRESHOLD)
+    tracks["file"] = save_name
+    return tracks
 
 if __name__ == "__main__":
-    paths = sorted(glob("data/**/TagRFP/*.tif", recursive = True))
-
+    paths = sorted(glob("data/tom_data/**/TagRFP/*.tif", recursive = True))
     with Pool(cpu_count()) as p:
-        p.map(_find_tracks, paths)
+        df = pd.concat(p.map(_find_tracks, paths))
+
+    df.to_hdf("results/intensities/")

@@ -37,7 +37,7 @@ if __name__ == "__main__":
     h, w = 200, 200
     x, y = create_grid(h = h, w = w)
 
-    # create data
+    # create tom_data
     img = []
     for _ in range(10):
         # sx = np.random.uniform(0, 3)

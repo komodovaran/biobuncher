@@ -137,3 +137,57 @@ def resample_timeseries(y, new_length = None):
         new_length = len(xpts)
     newy = f(np.linspace(min(xpts), max(xpts), new_length))
     return newy
+
+
+def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
+    """
+    Detects peak regions. See more at
+    https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
+
+    For example, a lag of 5 will use
+    the last 5 observations to smooth the data. A threshold of 3.5 will signal
+    if a datapoint is 3.5 standard deviations away from the moving mean.
+    And an influence of 0.5 gives signals half of the influence that normal
+    datapoints have. Likewise, an influence of 0 ignores signals completely for
+    recalculating the new threshold. An influence of 0 is therefore the most
+    robust option (but assumes stationarity); putting the influence option at 1
+    is least robust. For non-stationary data, the influence option should
+    therefore be put somewhere between 0 and 1.
+
+    Args:
+        y:
+            Input signal
+        lag:
+            The lag of the moving window
+        threshold:
+            The z-score at which the algorithm signals
+        influence:
+            The influence (between 0 and 1) of new signals on the mean and
+            standard deviation
+
+    Returns:
+        Array containing the signal of a peak region
+    """
+    signals = np.zeros(len(y))
+    filtered_y = np.array(y)
+    avg_filter = [0] * len(y)
+    std_filter = [0] * len(y)
+    avg_filter[lag - 1] = np.mean(y[0:lag])
+    std_filter[lag - 1] = np.std(y[0:lag])
+    for i in range(lag, len(y)):
+        if abs(y[i] - avg_filter[i - 1]) > threshold * std_filter[i - 1]:
+            if y[i] > avg_filter[i - 1]:
+                signals[i] = 1
+            else:
+                signals[i] = -1
+
+            filtered_y[i] = influence * y[i] + (1 - influence) * filtered_y[i - 1]
+            avg_filter[i] = np.mean(filtered_y[(i - lag + 1): i + 1])
+            std_filter[i] = np.std(filtered_y[(i - lag + 1): i + 1])
+        else:
+            signals[i] = 0
+            filtered_y[i] = y[i]
+            avg_filter[i] = np.mean(filtered_y[(i - lag + 1): i + 1])
+            std_filter[i] = np.std(filtered_y[(i - lag + 1): i + 1])
+
+    return signals

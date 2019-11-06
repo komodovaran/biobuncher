@@ -25,7 +25,7 @@ def _get_data():
     Loads all traces
     """
     X = np.load("results/intensities/intensities_resampled_minlen15_relen50.npz")[
-        "data"
+        "tom_data"
     ]
     return X
 
@@ -86,7 +86,7 @@ def _remove_redundant_columns(df):
 
 def _get_clusters(X, n_clusters, n_components):
     """Performs clustering and PCA for visualization"""
-    # Decompose data (1000+ dimensional) into something more managable
+    # Decompose tom_data (1000+ dimensional) into something more managable
     decomposer = sklearn.decomposition.PCA(n_components=n_components)
     X_de = decomposer.fit_transform(X)
 
@@ -161,6 +161,7 @@ if __name__ == "__main__":
     fig = px.scatter_3d(pca_z.sample(n=200), x=0, y=1, z=2, color="label")
     st.write(fig)
 
+    st.subheader("Average Clathrin/Auxilin trace. Number of traces, N = {}".format(len(X_true)))
     fig, ax = plt.subplots(nrows=n_clusters, figsize=(6, 10))
     for n in range(n_clusters):
         (selected_idx,) = np.where(clusters == n)
