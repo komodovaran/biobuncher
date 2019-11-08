@@ -101,7 +101,7 @@ def model_builder(model_dir, model_build_f, build_args):
         print("no model directory set. Creating new model.")
         # Create new directory with current time
         model_dir = Path(
-            "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            "models/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         )
         model = model_build_f(*build_args)
     else:
@@ -120,7 +120,7 @@ def model_builder(model_dir, model_build_f, build_args):
         except IndexError:
             print("no model found. Creating new model.")
             model_dir = Path(
-                "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+                "models/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             )
             model = model_build_f(*build_args)
 

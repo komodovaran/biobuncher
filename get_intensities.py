@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 import lib.config as C
 import lib.utils
-from lib.math import calc_steplength, circle_mask, roi_intensity
+from lib.math import calc_steplength, circle_mask, frame_roi_intensity
 from lib.utils import groupby_parallel_apply, pairwise
 
 
@@ -52,7 +52,7 @@ def _get_intensities(group):
             outer_area=C.ROI_OUTER,
         )
         for chan, idx in enumerate(pairwise(range(dim * 2))):
-            roi_intensities[j, idx] = roi_intensity(frame[..., chan], *masks)
+            roi_intensities[j, idx] = frame_roi_intensity(frame[..., chan], *masks)
 
     group[keys] = roi_intensities
     return group

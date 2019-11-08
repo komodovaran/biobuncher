@@ -1,0 +1,16 @@
+Naming convention:
+
+Underscores separate the name.
+Type of processing separated by dash. Always append extra processes to follow timeline
+Use multiple dashes to specify more parameters
+
+e.g.:
+cme-tracks_sliced-c0c1_model-autoencoder.h5
+
+for CME tracks:
+1. Import tracks from CME
+2. Slice tracks
+3. Re-sample tracks
+4. Train model
+
+All dataframes must have at least columns [file, particle, split, c0, c1], or things will break.

@@ -8,13 +8,11 @@ import lib.models
 
 
 @st.cache
-def _get_data():
+def _get_data(path):
     """
     Loads all traces
     """
-    X = np.load(
-        "results/intensities/cme_tracks_resampled_median.npz"
-    )["data"]
+    X = np.load(path)["data"]
     X = X[:, :, [0, 1]]
 
     return X
@@ -39,10 +37,13 @@ def _prepare_data(X, train_size=0.8):
 
 
 if __name__ == "__main__":
-    X_raw = _get_data()
-    X = lib.math.normalize_tensor(X_raw, feature_wise=True)
-
+    INPUT_DIR = "results/intensities/tracks-cme_split-c0c1_resampled-medianlen.npz"
     MODEL_DIR = None
+    TAG = "DilatedConv"
+
+    X_raw = _get_data(INPUT_DIR)
+    X = lib.math.normalize_tensor(X_raw, feature_wise=False)
+
     N_TIMESTEPS = X.shape[1]
     N_FEATURES = X.shape[2]
     CALLBACK_TIMEOUT = 5
@@ -54,8 +55,9 @@ if __name__ == "__main__":
 
     model, callbacks, initial_epoch = lib.models.model_builder(
         model_dir=MODEL_DIR,
-        model_build_f=lib.models.build_residual_conv_autoencoder,
-        build_args=(N_FEATURES, LATENT_DIM, N_TIMESTEPS, "elu"),
+        chkpt_tag = TAG,
+        model_build_f=lib.models.build_simple_conv_autoencoder,
+        build_args=(N_FEATURES, LATENT_DIM, N_TIMESTEPS),
     )
 
     model.summary()

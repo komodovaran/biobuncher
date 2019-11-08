@@ -6,55 +6,55 @@ import scipy.stats
 import sklearn.preprocessing
 import streamlit as st
 import lib.utils
-from functools import partial
 import lib.plotting
 
 
-def _get_data():
-    return pd.DataFrame(pd.read_hdf("results/intensities/cme_tracks.h5"))
+def _get_data(path):
+    return pd.DataFrame(pd.read_hdf(path))
 
 
 def _split_ts(group):
     """Splits timeseries into new ones by detected peak locations"""
-    if CHANNELS == "both":
-        s = -(group["int_c0"] * (group["int_c1"] + group["int_c0"]))
-        s = scipy.signal.savgol_filter(
-            s, window_length=WINDOW_LENGTH, polyorder=POLYORDER
-        )
-        s = sklearn.preprocessing.minmax_scale(s)
-        group["split_signal"] = s
-
-        peaks, _ = scipy.signal.find_peaks(
-            s, prominence=PROMINENCE, width=(5, 1000)
-        )
-    elif CHANNELS == "single":
-        s = group["int_c1"]
-        s = s.clip(0)
-        s = sklearn.preprocessing.minmax_scale(s)
-        _, properties = scipy.signal.find_peaks(
-            s, prominence=PROMINENCE, width=(5, 1000)
-        )
-        peaks = properties["right_bases"]
+    if len(group) < WINDOW_LENGTH * 2:
+        group
     else:
-        raise ValueError("Channels must be 'single' or 'both'")
+        if CHANNELS == "c0c1":
+            s = -(group["int_c0"] * (group["int_c1"] + group["int_c0"]))
+            s = scipy.signal.savgol_filter(
+                s, window_length=WINDOW_LENGTH, polyorder=POLYORDER
+            )
+            s = sklearn.preprocessing.minmax_scale(s)
+            group["split_signal"] = s
 
-    if len(peaks) > 0:
-        init = 0
-        splits = []
-        for i, p in enumerate(peaks):
-            group["split"] = i
-            splits.append(group[init:p])
-            init = p
-        group = pd.concat(splits)
-    return group
+            peaks, _ = scipy.signal.find_peaks(
+                s, prominence=PROMINENCE, width=(5, 1000)
+            )
+        elif CHANNELS == "c1":
+            s = group["int_c1"]
+            s = s.clip(0)
+            s = sklearn.preprocessing.minmax_scale(s)
+            _, properties = scipy.signal.find_peaks(
+                s, prominence=PROMINENCE, width=(5, 1000)
+            )
+            peaks = properties["right_bases"]
+        else:
+            raise ValueError("Channels must be 'c1' (aux) or 'c0c1' (clath/aux)")
 
-
-np.random.seed(100)
+        if len(peaks) > 0:
+            init = 0
+            splits = []
+            for i, p in enumerate(peaks):
+                group["split"] = i
+                splits.append(group[init:p])
+                init = p
+            group = pd.concat(splits)
+        return group
 
 if __name__ == "__main__":
-    df = _get_data()
+    PATH = "results/intensities/tracks-cme.h5"
 
-    CHANNELS = "both"
+    df = _get_data(PATH)
+
     WINDOW_LENGTH = 11
     POLYORDER = 1
     PROMINENCE = (0.02, 1)  # 0.05, 1
@@ -111,15 +111,12 @@ if __name__ == "__main__":
     plt.tight_layout()
     st.write(fig)
 
-    for c in "single", "both":
+    for c in "c1", "c0c1":
         CHANNELS = c
         split_df = lib.utils.groupby_parallel_apply(
             df.groupby(["file", "particle"]), _split_ts
         )
-        split_df.to_hdf(
-            "results/intensities/cme_tracks_split{}.h5".format(CHANNELS),
-            key="df",
-        )
+        split_df.to_hdf(PATH[:-3] + "_split-{}.h5".format(CHANNELS), key = "df")
 
     st.write(split_df)
 

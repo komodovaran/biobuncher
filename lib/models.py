@@ -67,12 +67,14 @@ def create_vae(n_features, n_timesteps, latent_dim=10):
         # by default, random_normal has mean = 0 and std = 1.0
         epsilon = K.random_normal(shape=(batch, dim))
         return z_mean + K.exp(0.5 * z_log_var) * epsilon
-    
+
     def _loss():
-        reconstruction_loss = tf.keras.losses.mse(K.flatten(inputs), K.flatten(outputs))
-        reconstruction_loss *= (n_timesteps * n_features)
+        reconstruction_loss = tf.keras.losses.mse(
+            K.flatten(inputs), K.flatten(outputs)
+        )
+        reconstruction_loss *= n_timesteps * n_features
         kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-        kl_loss = K.sum(kl_loss, axis = -1)
+        kl_loss = K.sum(kl_loss, axis=-1)
         kl_loss *= -0.5
         vae_loss = K.mean(reconstruction_loss + kl_loss)
         return vae_loss
@@ -83,10 +85,10 @@ def create_vae(n_features, n_timesteps, latent_dim=10):
     # build encoder model
     inputs = Input(shape=(n_timesteps, n_features), name="encoder_input")
     x = Flatten()(inputs)
-    x = Dense(512, activation = "relu")(x)
-    
+    x = Dense(512, activation="relu")(x)
+
     x = BatchNormalization()(x)
-    x = Dense(128, activation = "relu")(x)
+    x = Dense(128, activation="relu")(x)
     z_mean = Dense(latent_dim, name="z_mean")(x)
     z_log_var = Dense(latent_dim, name="z_log_var")(x)
 
@@ -98,7 +100,7 @@ def create_vae(n_features, n_timesteps, latent_dim=10):
     latent_inputs = Input(shape=(latent_dim,), name="z_sampling")
     x = Dense(128, activation="relu")(latent_inputs)
     x = BatchNormalization()(x)
-    x = Dense(512, activation = "relu")(x)
+    x = Dense(512, activation="relu")(x)
     outputs = Dense(n_timesteps * n_features, activation="sigmoid")(x)
 
     # instantiate encoder model
@@ -108,7 +110,7 @@ def create_vae(n_features, n_timesteps, latent_dim=10):
     # instantiate VAE model
     outputs = decoder(encoder(inputs)[2])
     vae = Model(inputs, outputs, name="vae_mlp")
-    
+
     vae.summary()
 
     vae.add_loss(_loss())
@@ -141,7 +143,11 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     lstm_units = 10
 
     if repeat_dim != n_timesteps:
-        raise ValueError("Latent dim {} cannot be multiplied up to full dim {}".format(latent_dim, n_timesteps))
+        raise ValueError(
+            "Latent dim {} cannot be multiplied up to full dim {}".format(
+                latent_dim, n_timesteps
+            )
+        )
 
     # ENCODER
     inputs = Input(shape=(None, n_features))
@@ -267,15 +273,15 @@ def build_simple_conv_autoencoder(n_features, latent_dim, n_timesteps):
     # ENCODER
     ei = Input((n_timesteps, n_features))
 
-    ez = Conv1D(2, 1)(ei)
+    ez = Conv1D(2, 1, dilation_rate = 7)(ei)
     ez = BatchNormalization()(ez)
     ez = Activation("elu")(ez)
 
-    ez = Conv1D(4, 7, **p)(ez)  # 50x4
+    ez = Conv1D(4, 7, **p, dilation_rate = 5)(ez)  # 50x4
     ez = BatchNormalization()(ez)
     ez = Activation("elu")(ez)
 
-    ez = Conv1D(6, 7, **p)(ez)  # 50x4
+    ez = Conv1D(6, 7, **p, dilation_rate = 3)(ez)  # 50x4
     ez = BatchNormalization()(ez)
     ez = Activation("elu")(ez)
 
@@ -290,15 +296,15 @@ def build_simple_conv_autoencoder(n_features, latent_dim, n_timesteps):
     dz = BatchNormalization()(dz)
     dz = Activation("elu")(dz)
 
-    dz = Conv1D(6, 7, **p)(dz)  # 50x4
+    dz = Conv1D(6, 7, **p, dilation_rate = 3)(dz)  # 50x4
     dz = BatchNormalization()(dz)
     dz = Activation("elu")(dz)
 
-    dz = Conv1D(4, 7, **p)(dz)  # 50x4
+    dz = Conv1D(4, 7, **p, dilation_rate = 5)(dz)  # 50x4
     dz = BatchNormalization()(dz)
     dz = Activation("elu")(dz)
 
-    do = Conv1D(2, 1, activation=None, **p)(dz)
+    do = Conv1D(2, 1, activation=None, **p, dilation_rate = 7)(dz)
     decoder = Model(inputs=latent_inputs, outputs=do)
 
     # AUTOENCODER
@@ -385,20 +391,26 @@ def build_residual_conv_autoencoder(
     return autoencoder
 
 
-def model_builder(model_dir, model_build_f, build_args):
+def model_builder(model_build_f, build_args, model_dir=None, chkpt_tag=None):
     """Loads model and callbacks"""
+    # set a directory in case None is set initially
+    _model_dir = Path(
+        "models/"
+        + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        + "{}".format("" if chkpt_tag is None else "_" + chkpt_tag)
+    )
+
     initial_epoch = 0
     if model_dir is None:
         print("no model directory set. Creating new model.")
-        model_dir = Path(
-            "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        )
+        model_dir = _model_dir
         model = model_build_f(*build_args)
     else:
         try:
             print("Loading model from specified directory")
             latest = sorted(
-                glob(Path(model_dir).joinpath("model_???").as_posix()), reverse = True
+                glob(Path(model_dir).joinpath("model_???").as_posix()),
+                reverse=True,
             )[0]
             initial_epoch = int(
                 latest[-3:]
@@ -406,17 +418,15 @@ def model_builder(model_dir, model_build_f, build_args):
             model = tf.keras.models.load_model(latest)
         except IndexError:
             print("no model found. Creating new model.")
-            model_dir = Path(
-                "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            )
+            model_dir = _model_dir
             model = model_build_f(*build_args)
 
     # callbacks
-    # tb = TensorBoard(log_dir = model_dir)
+    tb = TensorBoard(log_dir=model_dir)
     mca = ModelCheckpoint(
-        filepath = model_dir.joinpath("model_{epoch:03d}").as_posix(),
-        save_best_only = True,
+        filepath=model_dir.joinpath("model_{epoch:03d}").as_posix(),
+        save_best_only=True,
     )
 
-    callbacks = [mca]
+    callbacks = [mca, tb]
     return model, callbacks, initial_epoch

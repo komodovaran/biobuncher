@@ -18,7 +18,7 @@ def _matlab_tracks_to_pandas(mat_path):
     for n in range(len(m)):
         x = m.loc[n]
 
-        # group_len = len(x["t"].T[:, 0])
+        group_len = len(x["t"].T[:, 0])
         group = pd.DataFrame(
             {
                 "file"      : mat_path,
@@ -32,11 +32,13 @@ def _matlab_tracks_to_pandas(mat_path):
                 "isPSF_c0"  : x["isPSF"].T[:, 0],
                 "isPSF_c1"  : x["isPSF"].T[:, 1],
                 # "visibility__": x["visibility"].T[:, 0].repeat(group_len),
-                # "catIdx__"    : x["catIdx"].T[:, 0].repeat(group_len),
+                "catIdx__"    : x["catIdx"].T[:, 0].repeat(group_len),
                 # "lifetime_s__": x["lifetime_s"].T[:, 0].repeat(group_len),
                 # "isCCP"       : x["isCCP"].T[:, 0].repeat(group_len)
             }
         )
+        # forward fill all NaNs
+        group.fillna(method = "ffill", inplace = True)
 
         df.append(group)
     return pd.concat(df)
@@ -47,4 +49,5 @@ if __name__ == "__main__":
     with Pool(cpu_count()) as p:
         df = pd.concat(p.map(_matlab_tracks_to_pandas, paths))
 
-    df.to_hdf("results/intensities/cme_tracks.h5", key = "df")
+    print("NaNs:\n:", df.isna().sum())
+    df.to_hdf("results/intensities/tracks-cme.h5", key = "df")

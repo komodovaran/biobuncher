@@ -14,7 +14,7 @@ def create_legend_handles(colors):
     return [matplotlib.lines.Line2D([], [], color=c) for c in colors]
 
 
-def plot_c0_c1(int_c0, int_c1, alpha = 1, bg_c0=None, bg_c1=None, ax=None, frame=None):
+def plot_c0_c1(int_c0, int_c1, alpha = 1, bg_c0=None, bg_c1=None, ax=None, frame=None, separate_ax = False):
     """
     Easy plotting of Clathrin (channel 0) and Auxilin (channel 1)
     """
@@ -27,14 +27,17 @@ def plot_c0_c1(int_c0, int_c1, alpha = 1, bg_c0=None, bg_c1=None, ax=None, frame
     if bg_c0 is not None:
         ax.plot(frame, bg_c0, color="darkred", alpha = alpha)
 
-    ax_ = ax.twinx()
+    if separate_ax:
+        ax_ = ax.twinx()
+    else:
+        ax_ = ax
     ax_.plot(frame, int_c1, color="seagreen", alpha = alpha)
     if bg_c1 is not None:
         ax_.plot(frame, bg_c1, color="darkgreen", alpha = alpha)
 
     for a in ax, ax_:
         a.set_yticks(())
-    return ax, ax_
+    return ax if not separate_ax else ax, ax_
 
 
 def plot_c0_c1_errors(mean_int_c0, mean_int_c1, separate_ax = False, frame=None, ax=None):

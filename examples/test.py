@@ -6,4 +6,4 @@ def _get_latest_model(model_dir):
     model_dir += "/model_???"
 
 
-d = _get_latest_model("./logs/20191104-195104/")
+d = _get_latest_model("./models/20191104-195104/")

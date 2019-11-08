@@ -37,7 +37,6 @@ def flatten_list(input_list, as_array=False):
     return flat_lst
 
 
-@timeit
 def groupby_parallel_apply(grouped_df, func, concat=True) -> pd.DataFrame:
     """
     Runs Pandas groupby functions in parallel.
@@ -173,7 +172,7 @@ def ts_tensor_to_df(X):
     return df
 
 
-def ts_to_stationary(df, groupby = None):
+def ts_to_stationary(df, groupby=None):
     """
     Differences over the timeseries datafram
     to make it stationary. Pads beginning.
@@ -184,7 +183,7 @@ def ts_to_stationary(df, groupby = None):
 
     # Group by ID
     g = df.groupby("id") if groupby is not None else df
-    g = g.diff().replace(np.nan, 0, inplace = False)
+    g = g.diff().replace(np.nan, 0, inplace=False)
 
     # Add columns back
     g["time"] = time_col
@@ -201,7 +200,7 @@ def sample_max_normalize_3d(X, squeeze=True):
         X = X[np.newaxis, :, :]
     assert len(X.shape) == 3
     arr_max = np.max(X, axis=(1), keepdims=True)
-    X = X * (1/arr_max)
+    X = X * (1 / arr_max)
 
     if squeeze:
         return np.squeeze(X)

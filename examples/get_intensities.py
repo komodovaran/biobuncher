@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import skimage.io
 
-from lib.math import circle_mask, roi_intensity, calc_steplength
+from lib.math import circle_mask, frame_roi_intensity, calc_steplength
 from lib.utils import groupby_parallel_apply
 
 if __name__ == "__main__":
@@ -56,7 +56,7 @@ if __name__ == "__main__":
             # Find intensities with ROIs from each channel separately
             # First 0, 2 is sig, then 1, 3 as bg
             roi_intensities[j, 0::dim], roi_intensities[j, 1::dim] = [
-                roi_intensity(frame[..., chan], *masks) for chan in range(dim)
+                frame_roi_intensity(frame[..., chan], *masks) for chan in range(dim)
             ]
         group[keys] = roi_intensities
         calc_steplength(group, "x", "y")

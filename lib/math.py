@@ -1,5 +1,17 @@
 import numpy as np
-from scipy.interpolate import interp1d
+import scipy.interpolate
+from lib.utils import timeit
+
+@timeit
+def smooth_spline_2d(image, **spline_kwargs):
+    """
+    Fits a smooth spline in 2D, for image smoothing.
+    See RectBivariateSpline for additional options.
+    """
+    y, x = image.shape
+    rows = np.arange(0, y, 1)
+    cols = np.arange(0, x, 1)
+    return scipy.interpolate.RectBivariateSpline(rows, cols, image, **spline_kwargs)(rows, cols)
 
 
 def circle_mask(inner_area, outer_area, gap_space, yx, indices):
@@ -38,7 +50,7 @@ def circle_mask(inner_area, outer_area, gap_space, yx, indices):
     return center, bg_ring
 
 
-def roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
+def frame_roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
     """
     Extracts get_intensities from TIFF stack, given ROI and BG masks.
     Intensities are calculated as medians of all pixel values within the ROIs.
@@ -132,7 +144,7 @@ def resample_timeseries(y, new_length = None):
     Resamples timeseries by linear interpolation
     """
     xpts = range(len(y))
-    f = interp1d(xpts, y)
+    f = scipy.interpolate.interp1d(xpts, y)
     if new_length is None:
         new_length = len(xpts)
     newy = f(np.linspace(min(xpts), max(xpts), new_length))
