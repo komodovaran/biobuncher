@@ -1,8 +1,21 @@
 import numpy as np
+import parmap
 import scipy.interpolate
+from scipy import fftpack
+import multiprocessing as mp
 from lib.utils import timeit
 
-@timeit
+def est_proc():
+    """
+    Estimates a good number of processes for multithreading, due to overhead
+    of throwing too many CPUs at a problem
+    """
+    c = mp.cpu_count()
+    if c <= 8:
+        return c
+    else:
+        return c // 4
+
 def smooth_spline_2d(image, **spline_kwargs):
     """
     Fits a smooth spline in 2D, for image smoothing.
@@ -50,7 +63,7 @@ def circle_mask(inner_area, outer_area, gap_space, yx, indices):
     return center, bg_ring
 
 
-def frame_roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
+def frame_roi_intensity(array, roi_mask, bg_mask):
     """
     Extracts get_intensities from TIFF stack, given ROI and BG masks.
     Intensities are calculated as medians of all pixel values within the ROIs.
@@ -68,24 +81,19 @@ def frame_roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
 
     Returns
     -------
-    Center and background get_intensities
+    Corrected intensity
     """
     if not len(array.shape) == 2:
         raise ValueError("Only works on single-channel frames")
+
+    # Count the number of signal pixels
+    roi_n_pixels = np.sum(roi_mask)
 
     # whole ROI integrated (sum of all pixels)
     roi_pixel_sum_intensity = np.sum(array[roi_mask])
 
     # median background intensity (single pixel)
-    if bg_mode == "median":
-        bg_pixel_intensity = np.median(array[bg_mask])
-    elif bg_mode == "min":
-        bg_pixel_intensity = np.min(array[bg_mask])
-    else:
-        raise ValueError("Background mode must be 'median' or 'min'")
-
-    # Count the number of signal pixels
-    roi_n_pixels = np.sum(roi_mask)
+    bg_pixel_intensity = np.median(array[bg_mask])
 
     # Subtract background value from every pixel
     corrected_intensity = roi_pixel_sum_intensity - (
@@ -95,7 +103,7 @@ def frame_roi_intensity(array, roi_mask, bg_mask, bg_mode = "min"):
     # Get average signal pixel intensity
     mean_corrected_intensity = corrected_intensity / roi_n_pixels
 
-    return mean_corrected_intensity, bg_pixel_intensity
+    return mean_corrected_intensity
 
 
 def calc_steplength(df, x_col, y_col):
@@ -109,6 +117,7 @@ def calc_steplength(df, x_col, y_col):
         .apply(lambda row: row[1] - row[0], raw=True)
     )
     df["steplength"] = np.sqrt(df["dif_x"] ** 2 + df["dif_y"] ** 2)
+    df["steplength"].replace(np.nan, 0, inplace = True)
     df.drop(["dif_x", "dif_y"], axis=1, inplace=True)
     return df["steplength"]
 
@@ -203,3 +212,47 @@ def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
             std_filter[i] = np.std(filtered_y[(i - lag + 1): i + 1])
 
     return signals
+
+
+def fft_bg_2d(image, K = 2, percentile = 10):
+    """
+    Background correction with Fast Fourier Transform on a 2D image.
+    Args:
+        K:
+            Block size set to zero. Higher number gives more "wiggliness".
+        percentile:
+            Percentile above which to filter out. Higher number adds more noise.
+    """
+    M, N = image.shape
+
+    F = fftpack.fftn(image)
+    F_magnitude = np.abs(F)
+    F_magnitude = fftpack.fftshift(F_magnitude)
+
+    # Set a block around center of spectrum to zero
+    F_magnitude[M // 2 - K: M // 2 + K, N // 2 - K: N // 2 + K] = 0
+
+    # Find all peaks higher than the 98th percentile
+    peaks = F_magnitude < np.percentile(F_magnitude, percentile)
+
+    # Shift the peaks back to align with the original spectrum
+    peaks = fftpack.ifftshift(peaks)
+
+    # Set those peak coefficients to zero
+    F_dim = F * peaks
+
+    # Do the inverse Fourier transform to get back to an image.
+    # Since we started with a real image, we only look at the real part of
+    # the output.
+    image_filtered = np.real(fftpack.ifft2(F_dim))
+    return image_filtered
+
+@timeit
+def fft_bg_video(video, K = 2, percentile = 10, return_subtracted = True):
+    """
+    Parallel implementation of fft_bg_2d for videos
+    Return subtracted to immediately subtract the FFT (background)
+    from the original
+    """
+    bg = np.array(parmap.map(fft_bg_2d, video, K, percentile, pm_processes = est_proc()))
+    return video - bg if return_subtracted else bg

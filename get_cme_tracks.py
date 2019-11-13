@@ -1,6 +1,5 @@
 from glob import glob
-from multiprocessing import Pool, cpu_count
-
+from pathos.multiprocessing import Pool, cpu_count
 import pandas as pd
 import scipy.io
 

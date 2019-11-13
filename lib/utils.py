@@ -1,9 +1,10 @@
 import itertools
 import time
-from multiprocessing import Pool, cpu_count
 
 import numpy as np
 import pandas as pd
+import parmap
+import multiprocessing as mp
 
 
 def timeit(method):
@@ -36,17 +37,24 @@ def flatten_list(input_list, as_array=False):
         flat_lst = np.array(flat_lst)
     return flat_lst
 
-
+@timeit
 def groupby_parallel_apply(grouped_df, func, concat=True) -> pd.DataFrame:
     """
     Runs Pandas groupby functions in parallel.
     Set concat = True to concatenate subgroups to a new dataframe
     """
-    with Pool(cpu_count()) as p:
-        results_list = p.map(func, [group for _, group in grouped_df])
+    groups = [group for _, group in grouped_df]
+    results = parmap.map(func, groups)
     if concat:
-        results_list = pd.concat(results_list)
-    return results_list
+        results = pd.concat(results, sort = False)
+    return results
+
+
+def initialize_df_columns(df, new_columns):
+    """
+    Initializes a list of new columns with zeros
+    """
+    return df.assign(**{c:0 for c in new_columns})
 
 
 def pairwise(array):
