@@ -427,7 +427,7 @@ def model_builder(model_build_f, build_args, patience = 3, model_dir = None, chk
     es = EarlyStopping(patience = patience)
     tb = TensorBoard(log_dir = model_dir.as_posix())
     mca = ModelCheckpoint(
-        filepath = model_dir.joinpath("model_{epoch:03d}").as_posix(),
+        filepath = model_dir.joinpath("model_{epoch:03d}.h5").as_posix(),
         save_best_only = True,
     )
     callbacks = [mca, tb, es]

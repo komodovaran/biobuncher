@@ -30,6 +30,7 @@ def _process(df, path, by):
     X_fft = np.array([lib.math.nd_fft_ts(xi, log_transform = True) for xi in X])
     if not st._is_running_with_streamlit:
         np.savez(path[:-3] + "_fft.npz", data=X_fft)
+        np.savez(path[:-3] + "_pad.npz", data = X)
     return X, X_fft
 
 

@@ -7,7 +7,7 @@ from multiprocessing import Pool, cpu_count
 def _matlab_tracks_to_pandas(mat_path):
     """
     Converts CME-derived ProcessedTracks.mat to Pandas DataFrame format.
-    Single point features are marked with trailing underscores because Pandas
+    Single point extracted_features are marked with trailing underscores because Pandas
     can't deal with variable length columns formats
     """
     mat_file = scipy.io.loadmat(mat_path)

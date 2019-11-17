@@ -67,7 +67,7 @@ def _extract_ts_features(df, fc_params, load_precomputed):
     )
 
     features.to_hdf(savename, key="df")
-    print("Saved features to disk")
+    print("Saved extracted_features to disk")
     return features
 
 
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     )
     features = _remove_redundant_columns(features)
 
-    st.sidebar.subheader("Selected raw features")
+    st.sidebar.subheader("Selected raw extracted_features")
     selected_columns = []
     if st.sidebar.checkbox("Channel 0", value = True):
         selected_columns += "0"
