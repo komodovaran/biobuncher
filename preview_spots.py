@@ -91,7 +91,7 @@ def _SET_CONFIG():
 if __name__ == "__main__":
     TIFFPATH = "data/kangmin_data/**/**/*.tif"
     RESULTS_PATH = "results/intensities/tracks-tpy.h5"
-    CFG = ConfigObj("config/get_tracks.cfg")
+    CFG = ConfigObj("config/tracks_dual.cfg")
 
     paths_egfp, paths_tagrfp = [
         _tiffpath(TIFFPATH).format(s) for s in ("EGFP", "TagRFP")
@@ -110,11 +110,15 @@ if __name__ == "__main__":
     )
 
     if SWITCH_C:
+        CFG = ConfigObj("config/tracks_auxilin.cfg")
         video_c0 = _get_video(video_path = tiffs_egfp[VIDEO_IDX])
         video_c1 = _get_video(video_path = tiffs_tagrfp[VIDEO_IDX])
     else:
+        CFG = ConfigObj("config/tracks_dual.cfg")
         video_c0 = _get_video(video_path=tiffs_tagrfp[VIDEO_IDX])
         video_c1 = _get_video(video_path=tiffs_egfp[VIDEO_IDX])
+
+    st.subheader("⚠️ Writing config to {}".format(CFG.filename))
 
     FRAME = st.sidebar.slider(
         min_value=0, max_value=video_c0.shape[0], value=0, label="Frame Preview"
@@ -266,10 +270,10 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(ncols=2)
     p = dict(bins=bins, alpha=0.5, density=False)
 
-    ax[0].hist(intensities[0], color = "salmon", **p)
+    ax[0].hist(intensities[0], color = "darkred", **p)
     ax[0].set_yticks(())
 
-    ax[1].hist(intensities[1], color = "seagreen", **p)
+    ax[1].hist(intensities[1], color = "salmon", **p)
     ax[1].set_yticks(())
 
     plt.tight_layout()

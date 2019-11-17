@@ -22,11 +22,30 @@ from configobj import ConfigObj
 import lib.math
 import lib.plotting
 import lib.utils
-from lib.utils import timeit
+from lib.utils import timeit, remove_parent_dir
 
-os.environ["NUMEXPR_MAX_THREADS"] = "72"
 sns.set(context="notebook", style="darkgrid", palette="muted")
 tp.quiet()
+
+
+def _SET_CONFIG():
+    """
+    Writes configs to a file, so they can be reloaded on next streamlit
+    instance. They must be loaded as floats!
+    """
+    # CFG["REVERSE"] = REVERSE
+    CFG["TRACK_MINMASS_MULT"] = TRACK_MINMASS_MULT
+    CFG["TRACK_MEMORY"] = TRACK_MEMORY
+    CFG["TRACK_DIAMETER"] = TRACK_DIAMETER
+    CFG["TRACK_MEMORY"] = TRACK_MEMORY
+    CFG["TRACK_RANGE"] = TRACK_RANGE
+    CFG["LENGTH_THRESHOLD"] = LENGTH_THRESHOLD
+    CFG["ROI_INNER"] = ROI_INNER
+    CFG["ROI_OUTER"] = ROI_OUTER
+    CFG["ROI_GAP"] = ROI_GAP
+    CFG["FFT_K"] = FFT_K
+    CFG["FFT_P"] = FFT_P
+    CFG.write()
 
 
 @st.cache
@@ -42,12 +61,6 @@ def _tiffpath(path):
     """
     return Path(path).parent.parent.joinpath("{}/*.tif").as_posix()
 
-
-def remove_parent_dir(path, n):
-    """
-    Removes n directories from the left side of the path
-    """
-    return Path(*Path(path).parts[n + 1 :]).as_posix()
 
 @timeit
 def _get_videos(*pathlists):
@@ -76,26 +89,28 @@ def _preprocess_videos(*videolists):
     return rezipped
 
 
-def _get_features(video):
+def _get_detections(video, diameter, min_mass_mult):
     """
     Set tracking parameters through tests
     """
-    # keep it single threaded, because it's parallel per-video
-    features = tp.batch(
+    detections_df = tp.batch(
         frames=video,
-        diameter=int(CFG["TRACK_DIAMETER"]),
-        minmass=np.mean(video) * float(CFG["TRACK_MINMASS_MULT"]),
+        diameter=diameter,
+        minmass=np.mean(video) * min_mass_mult,
         engine="numba",
         processes=os.cpu_count(),
     )
-    return features
+    return detections_df
 
 
 def _link_df(args):
-    features, path = args
+    """
+    Link df for every movie in parallel
+    """
+    detections_df, path = args
     save_name = remove_parent_dir(path, 1)
     tracks = tp.link_df(
-        features,
+        detections_df,
         search_range=float(CFG["TRACK_RANGE"]),
         memory=int(CFG["TRACK_MEMORY"]),
     )
@@ -108,10 +123,17 @@ def _link_df(args):
 
 def _track(videos, paths):
     """
-    Do the particle tracking
+    Particle tracking for one list of videos
     """
-    features = [_get_features(v) for v in videos]
-    tracks = pd.concat(parmap.map(_link_df, zip(features, paths)), sort=False)
+    detections = [
+        _get_detections(
+            v,
+            diameter=int(CFG["TRACK_DIAMETER"]),
+            min_mass_mult=float(CFG["TRACK_MINMASS_MULT"]),
+        )
+        for v in videos
+    ]
+    tracks = pd.concat(parmap.map(_link_df, zip(detections, paths)), sort=False)
     tracks.to_hdf(RESULTS_PATH, key="df")
     return tracks
 
@@ -138,52 +160,41 @@ def _n_peaks(group):
     s = s.clip(0)
     s = sklearn.preprocessing.maxabs_scale(s)
     s = scipy.signal.medfilt(s, kernel_size=3)
-    peaks, *_ = scipy.signal.find_peaks(s, prominence=(0.3, 1))
-    return peaks, len(peaks)
-
-
-def _SET_CONFIG():
-    """
-    Writes configs to a file, so they can be reloaded on next streamlit
-    instance. They must be loaded as floats!
-    """
-    CFG["TRACK_MINMASS_MULT"] = TRACK_MINMASS_MULT
-    CFG["TRACK_MEMORY"] = TRACK_MEMORY
-    CFG["TRACK_DIAMETER"] = TRACK_DIAMETER
-    CFG["TRACK_MEMORY"] = TRACK_MEMORY
-    CFG["TRACK_RANGE"] = TRACK_RANGE
-    CFG["LENGTH_THRESHOLD"] = LENGTH_THRESHOLD
-    CFG["ROI_INNER"] = ROI_INNER
-    CFG["ROI_OUTER"] = ROI_OUTER
-    CFG["ROI_GAP"] = ROI_GAP
-    CFG["FFT_K"] = FFT_K
-    CFG["FFT_P"] = FFT_P
-    CFG.write()
+    peaks_pos, *_ = scipy.signal.find_peaks(s, prominence=(0.3, 1))
+    return peaks_pos, len(peaks_pos)
 
 
 @st.cache
 def _get_median_length(df):
-    return lib.utils.groupby_parallel_apply(
-        df.groupby(["file", "particle"]), _median_filter_sort
-    )
+    return lib.utils.groupby_parallel_apply(df.groupby(BY), _median_filter_sort)
+
 
 @st.cache
 def _get_n_peaks(df):
     return lib.utils.groupby_parallel_apply(
-        df.groupby(["file", "particle"]), _n_peaks, concat=False
+        df.groupby(BY), _n_peaks, concat=False
     )
+
+
+@st.cache
+def _get_peak_ratios(df):
+    p0 = df.groupby(BY).max()["int_c0"]
+    p1 = df.groupby(BY).max()["int_c1"]
+    p0p1 = np.column_stack((p0, p1))
+    ratio = p0p1.max(axis=1) / (p0 + p1)
+    return p0, p1, ratio
 
 
 if __name__ == "__main__":
     TIFFPATH = "data/kangmin_data/**/**/*.tif"
     RESULTS_PATH = "results/intensities/tracks-tpy.h5"
-    CFG = ConfigObj("config/get_tracks.cfg")
-
+    CFG = ConfigObj("config/tracks_dual.cfg")
+    BY = ["file", "particle"]
     start = time()
 
     # Setup for the app
     st.sidebar.subheader(
-        "Parameters (note: they don't do anything unless you press re-run)"
+        "Parameters (re-run script to apply)"
     )
 
     TRACK_MINMASS_MULT = st.sidebar.text_input(
@@ -218,13 +229,11 @@ if __name__ == "__main__":
         min_value=1, max_value=100, value=int(CFG["FFT_P"]), label="FFT noise"
     )
 
-    RERUN = st.sidebar.button(
-        label="Re-run tracking with updated parameters (takes a while)"
-    )
+    master_slave_order = ["TagRFP", "EGFP"]
 
     INTENSITY_PATH = RESULTS_PATH[:-3] + "_roi-int.h5"
 
-    if RERUN or not st._is_running_with_streamlit:
+    if not st._is_running_with_streamlit:
         try:
             print(
                 "Files deleted! Rerunning...\n"
@@ -243,9 +252,11 @@ if __name__ == "__main__":
         tracks, roi_intensities_df = _get_data(RESULTS_PATH, INTENSITY_PATH)
         PROGRESS_BAR.progress(100)
     except FileNotFoundError:
+        st.subheader("No data available. Rerun script!")
+
         print("Loading and preprocessing videos...")
         paths_c0, paths_c1 = [
-            _tiffpath(TIFFPATH).format(s) for s in ("TagRFP", "EGFP")
+            _tiffpath(TIFFPATH).format(s) for s in master_slave_order
         ]
         paths_c0, paths_c1 = [
             sorted(glob(paths, recursive=True))
@@ -318,22 +329,21 @@ if __name__ == "__main__":
         PROGRESS_BAR.progress(100)
         print("Done!")
 
-    total_groups = roi_intensities_df.groupby(["file", "particle"]).ngroups
-    has_aux = _get_median_length(roi_intensities_df)
-    aux_track_lengths = has_aux.groupby(["file", "particle"]).apply(len)
+    c0max, c1max, ratio = _get_peak_ratios(roi_intensities_df)
+    lengths = roi_intensities_df.groupby(BY).apply(len)
 
-    peaks, n_peaks = zip(*_get_n_peaks(has_aux))
+    n_total_groups = roi_intensities_df.groupby(BY).ngroups
+    aux_tracks = _get_median_length(roi_intensities_df)
+    aux_track_lengths = aux_tracks.groupby(BY).apply(len)
+    peaks, peak_ratio = zip(*_get_n_peaks(aux_tracks))
 
-    st.subheader("Total number of tracks")
-    st.write(total_groups)
+    st.subheader("Total number of tracks: \n{}".format(n_total_groups))
+    st.subheader("May have auxilin: \n{} ({:.1f}%)".format(len(aux_track_lengths), (len(aux_track_lengths) / n_total_groups) * 100))
 
-    st.subheader("May have auxilin")
-    st.write(len(aux_track_lengths))
-
-    nrows, ncols = 6, 5
+    nrows, ncols = 5, 6
     samples = []
     n = 0
-    for _, group in has_aux.groupby(["file", "particle"]):
+    for _, group in aux_tracks.groupby(BY):
         if n == nrows * ncols:
             break
         samples.append(group)
@@ -345,7 +355,7 @@ if __name__ == "__main__":
     )
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
     ax = ax.ravel()
-    for n, (_, group) in enumerate(samples.groupby(["file", "particle"])):
+    for n, (_, group) in enumerate(samples.groupby(BY)):
         lib.plotting.plot_c0_c1(
             ax=ax[n], int_c0=group["int_c0"], int_c1=group["int_c1"]
         )
@@ -357,21 +367,50 @@ if __name__ == "__main__":
     plt.tight_layout()
     st.write(fig)
 
-    st.subheader("Stats for tracks that may have auxilin")
-    fig, ax = plt.subplots(ncols=2, figsize=(7, 2))
+    fig, ax = plt.subplots(ncols = 2)
     bins = np.arange(0, 100, 5)
-    ax[0].hist(aux_track_lengths, bins=bins, color="orange")
-    ax[0].set_title("Length distribution")
+    ax[0].hist(aux_track_lengths, bins=bins, color="seagreen")
+    ax[0].set_xlabel("Auxilin track length")
 
-    ax[1].hist(n_peaks, bins=np.arange(0, 10, 1) - 0.5)
-    ax[1].set_xlim(-0.5, 4.5)
-    ax[1].set_xticks([0, 1, 2, 3, 4])
-    ax[1].set_title("Auxilin peaks per trace")
+    ax[1].hist(lengths, bins = bins)
+    ax[1].set_xlabel("Auxilin track length")
+    plt.tight_layout()
+    st.write(fig)
 
+    fig, ax = plt.subplots(nrows = 2, ncols = 2)
+    ax = ax.ravel()
+    ax[0].hist(peak_ratio, bins=np.arange(0, 10, 1) - 0.5)
+    ax[0].set_xlim(-0.5, 4.5)
+    ax[0].set_xticks([0, 1, 2, 3, 4])
+    ax[0].set_xlabel("{} peaks per trace".format(master_slave_order[1]))
+    ax[0].set_ylabel("Count")
+
+    ax[1].scatter(lengths, c0max, color = "salmon", alpha = 0.1)
+    ax[1].set_xlabel("Lengths".format(master_slave_order[1]))
+    ax[1].set_ylabel("Max intensity Clath".format(master_slave_order[1]))
+
+    ax[2].scatter(lengths, c1max, color = "seagreen", alpha = 0.1)
+    ax[2].set_xlabel("Lengths")
+    ax[2].set_ylabel("Max intensity Aux")
+
+    ax[3].scatter(c0max, c1max, color = "orange", alpha = 0.1)
+    ax[3].set_xlabel("Max intensity Clath")
+    ax[3].set_ylabel("Max intensity Aux")
+    plt.tight_layout()
+    st.write(fig)
+
+    st.subheader("Peak ratio distribution")
+    fig, ax = plt.subplots(nrows=3)
+    bins = np.linspace(0, np.concatenate((c0max, c1max)).max(), 20)
+    ax[0].hist(c0max, bins=bins)
+    ax[1].hist(c1max, bins=bins)
+    ax[2].hist(ratio, bins=np.linspace(0, 1, 20))
+    ax[0].set_xlabel("C0 max values")
+    ax[1].set_xlabel("C1 max values")
+    ax[2].set_xlabel("Peak max ratios")
     plt.tight_layout()
     st.write(fig)
 
     _SET_CONFIG()
     end = time()
-
     print("Time elapsed: {:.1f} s".format(end - start))

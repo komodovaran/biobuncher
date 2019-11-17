@@ -1,7 +1,7 @@
 from glob import glob
-from pathos.multiprocessing import Pool, cpu_count
 import pandas as pd
 import scipy.io
+from multiprocessing import Pool, cpu_count
 
 
 def _matlab_tracks_to_pandas(mat_path):
@@ -43,10 +43,16 @@ def _matlab_tracks_to_pandas(mat_path):
     return pd.concat(df)
 
 if __name__ == "__main__":
-    paths = sorted(glob("data/kangmin_data/**/ProcessedTracks.mat", recursive = True))
+    PATHS = sorted(glob("data/kangmin_data/**/ProcessedTracks.mat", recursive = True))
+    RESULTS_PATH = "results/intensities/tracks-cme.h5"
 
     with Pool(cpu_count()) as p:
-        df = pd.concat(p.map(_matlab_tracks_to_pandas, paths))
+        df = pd.concat(p.map(_matlab_tracks_to_pandas, PATHS))
 
     print("NaNs:\n:", df.isna().sum())
-    df.to_hdf("results/intensities/tracks-cme.h5", key = "df")
+
+    # ALl traces
+    df.to_hdf(RESULTS_PATH, key = "df")
+
+    # Only good traces as determined by CME
+    df[df["catIdx__"] <= 4].to_hdf(RESULTS_PATH[:-3] + "-catidx.h5", key = "df")

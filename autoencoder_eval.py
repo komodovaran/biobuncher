@@ -1,20 +1,27 @@
+import os
+import warnings
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category = FutureWarning)
+    from tensorflow.python import keras
+
 from glob import glob
-import os.path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import sklearn.cluster
 import sklearn.model_selection
+import sklearn.preprocessing
 import streamlit as st
-from tensorflow.python import keras
 
 import lib.math
 import lib.plotting
 import lib.utils
-import sklearn.preprocessing
 
-np.random.seed(0)
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 
 @st.cache
@@ -26,9 +33,13 @@ def _get_data(PATH):
     return X_true
 
 
-def _get_latest(MODEL_DIR):
+def _get_latest(MODEL_DIR, recency = 1):
     """Fetches latest model in directory"""
-    return sorted(glob(os.path.join(MODEL_DIR, "model*")))[-2]
+    models = glob(MODEL_DIR + "/model*")
+    try:
+        return sorted(models)[-recency]
+    except IndexError:
+        print("Index error. Does the directory actually contain models?")
 
 
 def _get_clusters(X, n_clusters, n_components):
@@ -39,7 +50,7 @@ def _get_clusters(X, n_clusters, n_components):
     st.write(X_de.shape)
 
     # cluster the decomposed
-    clustering = sklearn.cluster.SpectralClustering(n_clusters = n_clusters)
+    clustering = sklearn.cluster.SpectralClustering(n_clusters = n_clusters, n_jobs = -1)
     cluster_labels = clustering.fit_predict(X_de)
 
     # stack value decomposition and predicted labels
@@ -51,16 +62,19 @@ def _get_clusters(X, n_clusters, n_components):
 
 if __name__ == "__main__":
     # remember the /
-    MODEL_DIR = "models/20191106-184013DilatedConv/"
-    PATH = "results/intensities/tracks-cme_split-c0c1_resampled-medianlen.npz"
+    MODEL_DIR = "models/20191115-1946_conv_autoencoder_dim=5__data=tracks-tpy_roi-int_resampled-50.npz"
+    dataset = MODEL_DIR.split("data=")[-1]
+    data_path = os.path.join("results/intensities", dataset)
+    st.subheader(dataset)
 
-    X_true = _get_data(PATH)
-    X = lib.math.normalize_tensor(X_true[:, :, [0, 1]], feature_wise = False)
+    X_true = _get_data(data_path)
+    X = lib.math.normalize_tensor(X_true[:, :, [0, 1]], per_feature = True)
 
-    model = keras.models.load_model(_get_latest(MODEL_DIR))
+    latest_model = _get_latest(MODEL_DIR)
+    model = keras.models.load_model(latest_model)
     encoder = model.layers[1]
 
-    st.write("Model loaded: ", _get_latest(MODEL_DIR))
+    st.write("Model loaded from: ", latest_model)
 
     features = encoder.predict(X)
     # Standard scale features, because the model output is not bounded

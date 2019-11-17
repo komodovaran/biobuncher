@@ -2,19 +2,8 @@ import numpy as np
 import parmap
 import scipy.interpolate
 from scipy import fftpack
-import multiprocessing as mp
-from lib.utils import timeit
+from lib.utils import timeit, est_proc
 
-def est_proc():
-    """
-    Estimates a good number of processes for multithreading, due to overhead
-    of throwing too many CPUs at a problem
-    """
-    c = mp.cpu_count()
-    if c <= 8:
-        return c
-    else:
-        return c // 4
 
 def smooth_spline_2d(image, **spline_kwargs):
     """
@@ -122,17 +111,21 @@ def calc_steplength(df, x_col, y_col):
     return df["steplength"]
 
 
-def normalize_tensor(X_raw, feature_wise=False):
+def normalize_tensor(X, per_feature=False):
     """
-    Normalizes each sample in a tensor to max value. Can be done for all extracted_features,
-    or separately
+    Sample-wise max-value normalization of 3D array (tensor).
+    This is not feature-wise normalization, to keep the ratios between features intact!
     """
-    if feature_wise:
-        maxval = np.max(X_raw, axis=1, keepdims=True)
+    if len(X.shape) == 2:
+        X = X[np.newaxis, :, :]
+    if not len(X.shape) == 3:
+        raise ValueError("Shape not a tensor")
+
+    if per_feature:
+        arr_max = np.max(X, axis = 1, keepdims = True)
     else:
-        maxval = np.max(X_raw, axis=(1, 2), keepdims=True)
-    X = X_raw / maxval
-    return X
+        arr_max = np.max(X, axis = (1, 2), keepdims = True)
+    return np.squeeze(X / arr_max)
 
 
 def z_score_norm(x):
@@ -152,12 +145,20 @@ def resample_timeseries(y, new_length = None):
     """
     Resamples timeseries by linear interpolation
     """
-    xpts = range(len(y))
-    f = scipy.interpolate.interp1d(xpts, y)
+    ndim = y.shape[1]
+
+    x = range(len(y))
     if new_length is None:
-        new_length = len(xpts)
-    newy = f(np.linspace(min(xpts), max(xpts), new_length))
-    return newy
+        new_length = len(x)
+
+    new_x = np.linspace(min(x), max(x), new_length)
+    new_y = np.zeros((new_length, ndim))
+
+    # interpolate for each of the channels individually and collect
+    for i in range(ndim):
+        f = scipy.interpolate.interp1d(x, y[:, i])
+        new_y[:, i] = f(new_x)
+    return new_y
 
 
 def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
@@ -212,6 +213,25 @@ def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
             std_filter[i] = np.std(filtered_y[(i - lag + 1): i + 1])
 
     return signals
+
+def nd_fft_ts(y, center = False, log_transform = False):
+    """
+    Calculates fast fourier transform for each feature in a ND-timeseries
+    """
+    y = y.reshape(len(y), -1)
+    if center:
+        y = y - np.mean(y, axis = 0) # center the signal to avoid zero component
+    ndim = y.shape[1]
+    new_y = np.zeros((y.shape[0] // 2, ndim))
+    for i in range(ndim):
+        yf = fftpack.fft(y[:, i])
+        # Remove mirrored and negative parts
+        yf_single = np.abs(yf[:len(y)//2])
+        # log transform may make it nicer visually
+        if log_transform:
+            yf_single = np.log(1 + yf_single)
+        new_y[:, i] = yf_single
+    return new_y
 
 
 def fft_bg_2d(image, K = 2, percentile = 10):

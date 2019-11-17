@@ -2,12 +2,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.keras.layers import Lambda, Input, Dense
-from tensorflow.keras.models import Model
-from tensorflow.keras.datasets import mnist
-from tensorflow.keras.losses import mse, binary_crossentropy
-from tensorflow.keras.utils import plot_model
-from tensorflow.keras import backend as K
+from tensorflow.python.keras.layers import Lambda, Input, Dense
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.datasets import mnist
+from tensorflow.python.keras.losses import mse, binary_crossentropy
+from tensorflow.python.keras.utils import plot_model
+from tensorflow.python.keras import backend as K
 
 import numpy as np
 import matplotlib.pyplot as plt

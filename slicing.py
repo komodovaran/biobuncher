@@ -8,7 +8,7 @@ import streamlit as st
 import lib.utils
 import lib.plotting
 
-
+@st.cache
 def _get_data(path):
     return pd.DataFrame(pd.read_hdf(path))
 
@@ -18,27 +18,13 @@ def _split_ts(group):
     if len(group) < WINDOW_LENGTH * 2:
         group
     else:
-        if CHANNELS == "c0c1":
-            s = -(group["int_c0"] * (group["int_c1"] + group["int_c0"]))
-            s = scipy.signal.savgol_filter(
-                s, window_length=WINDOW_LENGTH, polyorder=POLYORDER
-            )
-            s = sklearn.preprocessing.minmax_scale(s)
-            group["split_signal"] = s
-
-            peaks, _ = scipy.signal.find_peaks(
-                s, prominence=PROMINENCE, width=(5, 1000)
-            )
-        elif CHANNELS == "c1":
-            s = group["int_c1"]
-            s = s.clip(0)
-            s = sklearn.preprocessing.minmax_scale(s)
-            _, properties = scipy.signal.find_peaks(
-                s, prominence=PROMINENCE, width=(5, 1000)
-            )
-            peaks = properties["right_bases"]
-        else:
-            raise ValueError("Channels must be 'c1' (aux) or 'c0c1' (clath/aux)")
+        s = group["int_c1"]
+        s = s.clip(0)
+        s = sklearn.preprocessing.minmax_scale(s)
+        _, properties = scipy.signal.find_peaks(
+            s, prominence=PROMINENCE, width=(5, 1000)
+        )
+        peaks = properties["right_bases"]
 
         if len(peaks) > 0:
             init = 0
@@ -49,6 +35,7 @@ def _split_ts(group):
                 init = p
             group = pd.concat(splits)
         return group
+
 
 if __name__ == "__main__":
     PATH = "results/intensities/tracks-cme.h5"
@@ -111,12 +98,10 @@ if __name__ == "__main__":
     plt.tight_layout()
     st.write(fig)
 
-    for c in "c1", "c0c1":
-        CHANNELS = c
-        split_df = lib.utils.groupby_parallel_apply(
-            df.groupby(["file", "particle"]), _split_ts
-        )
-        split_df.to_hdf(PATH[:-3] + "_split-{}.h5".format(CHANNELS), key = "df")
+    split_df = lib.utils.groupby_parallel_apply(
+        df.groupby(["file", "particle"]), _split_ts
+    )
+    split_df.to_hdf(PATH[:-3] + "_split-{}.h5".format("c1"), key = "df")
 
     st.write(split_df)
 

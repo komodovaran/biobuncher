@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import seaborn as sns
@@ -7,10 +6,13 @@ import sklearn.cluster
 import sklearn.decomposition
 import sklearn.model_selection
 import streamlit as st
-from tensorflow import keras
-from lib.models import *
+from tensorflow.python import keras
+import lib.models
 
 from lib import utils
+from lib.models import *
+
+tf.enable_eager_execution()
 
 sns.set(context="paper", style="whitegrid", palette="pastel")
 
@@ -139,7 +141,7 @@ if __name__ == "__main__":
     N_TIMESTEPS = X_train.shape[1]
     N_FEATURES = X_train.shape[2]
     CALLBACK_TIMEOUT = 3
-    EPOCHS = 100
+    EPOCHS = 1000
     BATCH_SIZE = 64
     LATENT_DIM = 50
 
@@ -170,30 +172,24 @@ if __name__ == "__main__":
         for data in (X_train, X_test)
     ]
 
-    try:
-        model = tf.keras.models.load_model(
-            "results/models/test_autoencoder.h5"
-        )  # type: Model
-    except OSError:
-        model = create_vae(
-            n_features=N_FEATURES,
-            n_timesteps=N_TIMESTEPS,
-            latent_dim=LATENT_DIM,
-        )
+    model, callbacks, initial_epoch = lib.models.model_builder(
+        model_dir = "example/models/example_model",
+        chkpt_tag = None,
+        model_build_f = lib.models.build_residual_conv_autoencoder,
+        build_args = (N_FEATURES, LATENT_DIM, N_TIMESTEPS),
+    )
 
-        model.fit(
-            x=X_train.repeat(),
-            validation_data=X_test.repeat(),
-            epochs=EPOCHS,
-            steps_per_epoch=X_train_len // BATCH_SIZE,
-            validation_steps=X_test_len // BATCH_SIZE,
-            callbacks=[keras.callbacks.EarlyStopping(patience=30)],
-        )
-
-        model.save("results/models/test_autoencoder.h5")
+    model.fit(
+        x=X_train.repeat(),
+        validation_data=X_test.repeat(),
+        epochs=EPOCHS,
+        steps_per_epoch=X_train_len // BATCH_SIZE,
+        validation_steps=X_test_len // BATCH_SIZE,
+        callbacks=callbacks,
+    )
 
     X_test = utils.batch_to_numpy(X_test)
-    X_test, X_pred, latents = _get_predictions_vae(X_test)
+    X_test, X_pred, latents = _get_predictions(X_test)
     X_pred = X_pred.reshape(-1, N_TIMESTEPS, N_FEATURES)
 
     st.write("Test tom_data shape: ", X_test.shape)

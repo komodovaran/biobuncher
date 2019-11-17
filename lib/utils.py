@@ -1,10 +1,23 @@
 import itertools
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import parmap
 import multiprocessing as mp
+
+
+def est_proc():
+    """
+    Estimates a good number of processes for multithreading, due to overhead
+    of throwing too many CPUs at a problem
+    """
+    c = mp.cpu_count()
+    if c <= 8:
+        return c
+    else:
+        return c // 4
 
 
 def timeit(method):
@@ -37,14 +50,22 @@ def flatten_list(input_list, as_array=False):
         flat_lst = np.array(flat_lst)
     return flat_lst
 
-@timeit
-def groupby_parallel_apply(grouped_df, func, concat=True) -> pd.DataFrame:
+
+def groupby_parallel_apply(grouped_df, func, f_args = None, concat=True, n_jobs = -1):
     """
     Runs Pandas groupby functions in parallel.
     Set concat = True to concatenate subgroups to a new dataframe
     """
+    if n_jobs == -1:
+        n_jobs = est_proc()
+
     groups = [group for _, group in grouped_df]
-    results = parmap.map(func, groups)
+
+    if f_args is not None:
+        results = parmap.map(func, groups, f_args, pm_processes = n_jobs)
+    else:
+        results = parmap.map(func, groups, pm_processes = n_jobs)
+
     if concat:
         results = pd.concat(results, sort = False)
     return results
@@ -95,6 +116,7 @@ def run_length_encoding(arr):
     returns: tuple (runlengths, startpositions, values)
     """
     ia = np.array(arr)  # force numpy
+    print(ia.shape)
     n = len(ia)
     if n == 0:
         return None, None, None
@@ -214,3 +236,11 @@ def sample_max_normalize_3d(X, squeeze=True):
         return np.squeeze(X)
     else:
         return X
+
+
+def remove_parent_dir(path, n):
+    """
+    Removes n directories from the left side of the path
+    """
+    return Path(*Path(path).parts[n + 1 :]).as_posix()
+
