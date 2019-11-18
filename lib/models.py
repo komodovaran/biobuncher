@@ -6,7 +6,7 @@ import tensorflow.python as tf
 from tensorflow.python.keras.callbacks import *
 from tensorflow.python.keras.layers import *
 from tensorflow.python.keras.models import *
-
+from tensorflow.python.keras.optimizers import *
 
 class ResidualConv1D:
     """
@@ -151,7 +151,7 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
 
     # ENCODER
     inputs = Input(shape = (None, n_features))
-    ez = LSTM(units = lstm_units, return_sequences = False)(inputs)
+    ez = CuDNNLSTM(units = lstm_units, return_sequences = False)(inputs)
     ez = Activation("relu")(ez)
     eo = Dense(units = latent_dim)(ez)
 
@@ -160,7 +160,7 @@ def build_lstm_autoencoder(n_features, latent_dim, n_timesteps):
     # DECODER
     latent_inputs = Input(shape = (latent_dim,))
     dz = RepeatVector(repeat_dim)(latent_inputs)
-    dz = LSTM(units = lstm_units, return_sequences = True)(dz)
+    dz = CuDNNLSTM(units = lstm_units, return_sequences = True)(dz)
     dz = Activation("relu")(dz)
     outputs = TimeDistributed(Dense(n_features))(dz)
 
@@ -387,7 +387,7 @@ def build_residual_conv_autoencoder(
     # AUTOENCODER
     do = decoder(encoder(ei))
     autoencoder = Model(inputs = ei, outputs = do)
-    autoencoder.compile(optimizer = "adam", loss = "mse")
+    autoencoder.compile(optimizer = "sgd", loss = "mse")
     return autoencoder
 
 

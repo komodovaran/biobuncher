@@ -3,7 +3,7 @@ import os.path
 from glob import glob
 from pathlib import Path
 from time import time
-
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -11,9 +11,9 @@ import parmap
 import scipy.signal
 import scipy.stats
 import seaborn as sns
+import skimage.io
 import skimage.color
 import skimage.exposure
-import skimage.io
 import sklearn.preprocessing
 import streamlit as st
 import trackpy as tp
@@ -62,7 +62,7 @@ def _tiffpath(path):
     return Path(path).parent.parent.joinpath("{}/*.tif").as_posix()
 
 
-@timeit
+
 def _get_videos(*pathlists):
     """Loads all videos in parallel and returns in same order and number of lists equal to input lists"""
     div = len(pathlists)
@@ -97,8 +97,8 @@ def _get_detections(video, diameter, min_mass_mult):
         frames=video,
         diameter=diameter,
         minmass=np.mean(video) * min_mass_mult,
-        engine="numba",
-        processes=os.cpu_count(),
+        engine="python",
+        processes=lib.utils.est_proc(),
     )
     return detections_df
 
@@ -125,14 +125,16 @@ def _track(videos, paths):
     """
     Particle tracking for one list of videos
     """
-    detections = [
-        _get_detections(
-            v,
+    detections = []
+    for v in videos:
+        d = _get_detections(
+            video = v,
             diameter=int(CFG["TRACK_DIAMETER"]),
             min_mass_mult=float(CFG["TRACK_MINMASS_MULT"]),
         )
-        for v in videos
-    ]
+
+        detections.append(d)
+
     tracks = pd.concat(parmap.map(_link_df, zip(detections, paths)), sort=False)
     tracks.to_hdf(RESULTS_PATH, key="df")
     return tracks
@@ -193,9 +195,7 @@ if __name__ == "__main__":
     start = time()
 
     # Setup for the app
-    st.sidebar.subheader(
-        "Parameters (re-run script to apply)"
-    )
+    st.sidebar.subheader("Parameters (re-run script to apply)")
 
     TRACK_MINMASS_MULT = st.sidebar.text_input(
         value=float(CFG["TRACK_MINMASS_MULT"]),
@@ -338,7 +338,12 @@ if __name__ == "__main__":
     peaks, peak_ratio = zip(*_get_n_peaks(aux_tracks))
 
     st.subheader("Total number of tracks: \n{}".format(n_total_groups))
-    st.subheader("May have auxilin: \n{} ({:.1f}%)".format(len(aux_track_lengths), (len(aux_track_lengths) / n_total_groups) * 100))
+    st.subheader(
+        "May have auxilin: \n{} ({:.1f}%)".format(
+            len(aux_track_lengths),
+            (len(aux_track_lengths) / n_total_groups) * 100,
+        )
+    )
 
     nrows, ncols = 5, 6
     samples = []
@@ -367,17 +372,17 @@ if __name__ == "__main__":
     plt.tight_layout()
     st.write(fig)
 
-    fig, ax = plt.subplots(ncols = 2)
+    fig, ax = plt.subplots(ncols=2)
     bins = np.arange(0, 100, 5)
     ax[0].hist(aux_track_lengths, bins=bins, color="seagreen")
     ax[0].set_xlabel("Auxilin track length")
 
-    ax[1].hist(lengths, bins = bins)
+    ax[1].hist(lengths, bins=bins)
     ax[1].set_xlabel("Auxilin track length")
     plt.tight_layout()
     st.write(fig)
 
-    fig, ax = plt.subplots(nrows = 2, ncols = 2)
+    fig, ax = plt.subplots(nrows=2, ncols=2)
     ax = ax.ravel()
     ax[0].hist(peak_ratio, bins=np.arange(0, 10, 1) - 0.5)
     ax[0].set_xlim(-0.5, 4.5)
@@ -385,15 +390,15 @@ if __name__ == "__main__":
     ax[0].set_xlabel("{} peaks per trace".format(master_slave_order[1]))
     ax[0].set_ylabel("Count")
 
-    ax[1].scatter(lengths, c0max, color = "salmon", alpha = 0.1)
+    ax[1].scatter(lengths, c0max, color="salmon", alpha=0.1)
     ax[1].set_xlabel("Lengths".format(master_slave_order[1]))
     ax[1].set_ylabel("Max intensity Clath".format(master_slave_order[1]))
 
-    ax[2].scatter(lengths, c1max, color = "seagreen", alpha = 0.1)
+    ax[2].scatter(lengths, c1max, color="seagreen", alpha=0.1)
     ax[2].set_xlabel("Lengths")
     ax[2].set_ylabel("Max intensity Aux")
 
-    ax[3].scatter(c0max, c1max, color = "orange", alpha = 0.1)
+    ax[3].scatter(c0max, c1max, color="orange", alpha=0.1)
     ax[3].set_xlabel("Max intensity Clath")
     ax[3].set_ylabel("Max intensity Aux")
     plt.tight_layout()

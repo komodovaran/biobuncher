@@ -5,7 +5,7 @@ import streamlit as st
 
 import lib.math
 import lib.utils
-
+import lib.plotting
 
 @st.cache
 def _get_data(path):
@@ -22,20 +22,28 @@ def _process(df, path, by):
     """
     grouped_df = df.groupby(by)
     max_len = 300 # video max length
-    X = np.zeros((grouped_df.ngroups, max_len, 2))
+    X_padded = np.zeros((grouped_df.ngroups, max_len, 2))
+    X_resampled = X_padded.copy()
     for n, (_, group) in enumerate(grouped_df):
         l = group.values.shape[0]
-        X[n, 0:l, :] = group[["int_c0", "int_c1"]]
-    # Don't run in parallel, too fast
-    X_fft = np.array([lib.math.nd_fft_ts(xi, log_transform = True) for xi in X])
-    if not st._is_running_with_streamlit:
-        np.savez(path[:-3] + "_fft.npz", data=X_fft)
-        np.savez(path[:-3] + "_pad.npz", data = X)
-    return X, X_fft
+        X_padded[n, 0:l, :] = group[["int_c0", "int_c1"]]
+        X_resampled[n, ...] = lib.math.resample_timeseries(group[["int_c0", "int_c1"]].values, new_length = max_len)
+
+    # padded
+    np.savez(path[:-3] + "_pad.npz", data = X_padded)
+
+    # resampled
+    np.savez(path[:-3] + "_res.npz", data = X_resampled)
+
+    # fft
+    X_fft = np.array([lib.math.nd_fft_ts(xi, log_transform = True) for xi in X_resampled])
+    X_fft = X_fft[:, :80, :]
+    np.savez(path[:-3] + "_fft-{}.npz".format(X_fft.shape[1]), data=X_fft)
+    return X_padded, X_fft
 
 
 if __name__ == "__main__":
-    INPUT_DIR = "results/intensities/tracks-tpy_roi-int.h5"
+    INPUT_DIR = "results/intensities/tracks-cme_split-c1.h5"
     BY = ["file", "particle", "split"]
     FILTER_SHORT = 10
 
@@ -54,8 +62,12 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(nrows = 4, ncols = 4)
     ax = ax.ravel()
     for n, idx in enumerate(samples):
-        Xi = X[idx, 0:100]
-        ax[n].plot(Xi)
+        xi = X[idx, 0:100]
+        xi0 = np.trim_zeros(xi[:, 0].ravel())
+        xi1 = np.trim_zeros(xi[:, 1].ravel())
+
+        ax[n].plot(xi0)
+        ax[n].plot(xi1)
     plt.tight_layout()
     st.write(fig)
 

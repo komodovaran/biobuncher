@@ -5,7 +5,7 @@ import tensorflow.python as tf
 from itertools import product
 import lib.math
 import lib.models
-from lib.models import build_conv_autoencoder, build_residual_conv_autoencoder
+from lib.models import build_conv_autoencoder, build_residual_conv_autoencoder, build_lstm_autoencoder
 
 
 # os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -24,6 +24,8 @@ def _get_data(path):
     print(path)
     X = np.load(path)["data"]
     X = X[:, :, [0, 1]]
+    if X.shape[0] < 100:
+        raise ValueError("File is suspiciously small. Recheck!")
     return X
 
 
@@ -46,14 +48,15 @@ def _prepare_data(X, train_size = 0.8):
 
 
 if __name__ == "__main__":
+    FEATUREWISE_NORM = False
     _INPUT_NPZ = (
-        "results/intensities/tracks-cme_split-c1_fft.npz",
-        "results/intensities/tracks-tpy_roi-int_fft.npz",
-        "results/intensities/tracks-cme-catidx_fft.npz",
+        "results/intensities/tracks-cme_split-c1_res.npz",
+        # "results/intensities/tracks-tpy_roi-int_res.npz",
+        # "results/intensities/tracks-cme-catidx_fft.npz",
     )
 
-    _LATENT_DIM = (5, 10, 15)
-    _MODELF = (build_conv_autoencoder, build_residual_conv_autoencoder)
+    _LATENT_DIM = 3,
+    _MODELF = build_residual_conv_autoencoder, #build_lstm_autoencoder
 
     for _input_npz, _latent_dim, _modelf in product(
         _INPUT_NPZ, _LATENT_DIM, _MODELF
@@ -65,9 +68,13 @@ if __name__ == "__main__":
         try:
             X_raw = _get_data(INPUT_NPZ)
         except FileNotFoundError:
+            print(_input_npz, "was not found!")
             continue
 
-        X = lib.math.normalize_tensor(X_raw, per_feature = False)
+        X = lib.math.normalize_tensor(X_raw, per_feature = FEATUREWISE_NORM)
+        print(X[0])
+        print(X.max())
+
         if X.max() > 1:
             raise ValueError("Check normalization!")
 
@@ -79,6 +86,7 @@ if __name__ == "__main__":
 
         TAG = "_" + _model_type(_modelf)
         TAG += "_dim={}_".format(LATENT_DIM)
+        TAG += "_pr_ftr={}".format(FEATUREWISE_NORM)
         TAG += "_data={}".format(INPUT_NPZ.split("/")[-1])
 
         (X_train, X_test), (X_train_len, X_test_len) = _prepare_data(X)

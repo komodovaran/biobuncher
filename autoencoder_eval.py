@@ -20,21 +20,22 @@ import plotly.express as px
 import sklearn.cluster
 import sklearn.model_selection
 import sklearn.preprocessing
+import sklearn.metrics
 import streamlit as st
 
 import lib.math
 import lib.plotting
 import lib.utils
-from lib.utils import timeit
 
 
 @st.cache
-def _get_npz(path):
+def _get_npz(path, normalize, per_feature=False):
     """
     Loads all traces
     """
     X = np.load(path)["data"]
-    X = lib.math.normalize_tensor(X[:, :, [0, 1]], per_feature=True)
+    if normalize:
+        X = lib.math.normalize_tensor(X[:, :, [0, 1]], per_feature=per_feature)
     return X
 
 
@@ -48,17 +49,24 @@ def _get_latest(MODEL_DIR, recency=1):
         st.write("Index error. Does the directory actually contain models?")
 
 
-def _get_features(X, encoder, model_path):
+def _get_features(X_true, model_path):
     """Predicts autoencoder features and saves them"""
     feature_path = os.path.join("results/extracted_features/", model_path[7:])
-    print(feature_path)
     st.write("Features will be saved to: ", feature_path)
     try:
-        features = np.load(feature_path)["data"]
+        arrs = np.load(feature_path)
+        features, X_pred, mse = arrs["features"], arrs["X_pred"], arrs["mse"]
     except FileNotFoundError:
-        features = encoder.predict(X)
-        np.savez(feature_path, data=features)
-    return features
+        print("Predicting features")
+        latest_model_path = _get_latest(model_path)
+        model = keras.models.load_model(latest_model_path)
+        encoder = model.layers[1]
+        decoder = model.layers[2]
+        features = encoder.predict(X_true)
+        X_pred = decoder.predict(features)
+        mse = sklearn.metrics.mean_squared_error(X_true, X_pred)
+        np.savez(feature_path, features=features, X_pred=X_pred, mse=mse)
+    return features, X_pred, mse
 
 
 def _get_clusters(X, n_clusters, n_components):
@@ -83,26 +91,20 @@ def _get_clusters(X, n_clusters, n_components):
 
 if __name__ == "__main__":
     # remember the /
-    MODEL_DIR = "models/20191117-1554_residual_conv_autoencoder_dim=5__data=tracks-tpy_roi-int_fft.npz"
+    MODEL_DIR = "models/20191118-1651_residual_conv_autoencoder_dim=3__pr_ftr=False_data=tracks-cme_split-c1_res.npz"
     dataset = MODEL_DIR.split("data=")[-1]
     X_path = os.path.join("results/intensities", dataset)
-    real_path = X_path[:-8] + "_pad.npz"
+    real_path = X_path  # [:-11] + "_res.npz" # 8 if no truncation, 11 if trunctaed 2 digit
 
     st.subheader(dataset)
 
-    X = _get_npz(X_path)
-    X_true = _get_npz(real_path)
+    X = _get_npz(X_path, normalize=True)
+    X_real = _get_npz(real_path, normalize=False)
 
-    st.write(X_path)
-    st.write(real_path)
+    st.write("data path: ", X_path)
+    st.write("real path: ", real_path)
 
-    latest_model_path = _get_latest(MODEL_DIR)
-
-    model = keras.models.load_model(latest_model_path)
-    encoder = model.layers[1]
-    st.write("Model loaded from: ", latest_model_path)
-
-    features = _get_features(X=X, encoder=encoder, model_path=MODEL_DIR)
+    features, X_pred, mse = _get_features(X_true=X, model_path=MODEL_DIR)
     # Standard scale extracted_features, because the model output is not bounded
     features = sklearn.preprocessing.minmax_scale(features)
 
@@ -110,11 +112,11 @@ if __name__ == "__main__":
     st.write(features)
 
     n_clusters = st.sidebar.slider(
-        value=2, min_value=2, max_value=5, label="n clusters"
+        value=2, min_value=2, max_value=15, label="n clusters"
     )
     n_components = st.sidebar.slider(
         value=3,
-        min_value=3,
+        min_value=1,
         max_value=features.shape[-1],
         label="n components used for clustering",
     )
@@ -132,19 +134,23 @@ if __name__ == "__main__":
             len(X)
         )
     )
-    fig, ax = plt.subplots(nrows=n_clusters, figsize=(6, 10))
     for n in range(n_clusters):
+        fig, ax = plt.subplots()
         (selected_idx,) = np.where(clusters == n)
-        mean_preds = np.mean(X[selected_idx], axis=0)
-        ax[n].set_title("fraction = {:.2f}".format(len(selected_idx) / len(X)))
+        mean_preds = np.mean(X_real[selected_idx], axis=0)
+        ax.set_title(
+            "N = {} (fraction = {:.2f})".format(
+                len(selected_idx), len(selected_idx) / len(X)
+            )
+        )
         lib.plotting.plot_c0_c1_errors(
             mean_int_c0=mean_preds[:, 0],
             mean_int_c1=mean_preds[:, 1],
-            ax=ax[n],
+            ax=ax,
             separate_ax=False,
         )
-    plt.tight_layout()
-    st.write(fig)
+        plt.tight_layout()
+        st.write(fig)
 
     for n in range(n_clusters):
         (selected_idx,) = np.where(clusters == n)
@@ -156,10 +162,10 @@ if __name__ == "__main__":
         axes = axes.ravel()
 
         for i, ax in zip(selected_idx, axes):
-            xi = X_true[i]
+            xi = X_real[i]
             lib.plotting.plot_c0_c1(
-                int_c0=np.trim_zeros(xi[:, 0]),
-                int_c1=np.trim_zeros(xi[:, 1]),
+                int_c0=np.trim_zeros(xi[:, 0].ravel()),
+                int_c1=np.trim_zeros(xi[:, 1].ravel()),
                 ax=ax,
                 separate_ax=False,
             )

@@ -8,42 +8,38 @@ from lib.math import resample_timeseries
 
 np.random.seed(9)
 
-data = pd.read_hdf("results/intensities/tracks-cme_split-c1.h5")
-samples = sample_groups(data, 3, by=["file", "particle"])
-samples = [group for _, group in samples.groupby(["file", "particle"])]
+X = np.load("results/intensities/tracks-cme_split-c1_res.npz")["data"]
 
-st.write(samples)
-
-zvals = np.row_stack(
-    [resample_timeseries(sample[["int_c0", "int_c1"]]/sample[["int_c0", "int_c1"]].max(), 50) for sample in samples]
-)
-
+zvals = np.row_stack(X[0:100, :, 1])
 
 xvals = np.arange(0, zvals.shape[1], 1)
+zvals_mean = np.median(zvals, axis = 0)
+
 st.write(zvals.shape)
+st.write(zvals_mean.shape)
+peak_val = np.argmax(zvals_mean)
 
-fig, ax = plt.subplots(nrows=2, ncols = 2)
+fig, ax = plt.subplots(nrows = 2, ncols = 2)
 ax = ax.ravel()
-ax[0].plot(zvals.T)
-ax[1].plot(zvals.T.mean(axis = 1))
+ax[0].plot(zvals.T, alpha = 0.2, color = "black")
+ax[1].plot(np.median(zvals.T, axis = 1))
 
-reference_peaks = [20]
+reference_peaks = [peak_val]
 
-peaks_aligned, shifts = msalign(
-    xvals=xvals,
-    zvals=zvals,
-    peaks=reference_peaks,
-    resolution=100,
-    grid_steps=50,
-    ratio=2,
-    iterations=5,
-    shift_range=[-100, 100],
-    return_shifts = True
+peaks_aligned = msalign(
+    xvals = xvals,
+    zvals = zvals,
+    peaks = reference_peaks,
+    resolution = 100,
+    grid_steps = 50,
+    ratio = 2,
+    iterations = 5,
+    shift_range = [-300, 300],
+    return_shifts = False,
+    only_shift = True
 )
-st.write(shifts)
-
-ax[2].plot(peaks_aligned.T)
-ax[3].plot(peaks_aligned.T.mean(axis = 1))
+ax[2].plot(peaks_aligned.T, alpha = 0.2, color = "black")
+ax[3].plot(np.median(peaks_aligned.T, axis = 1))
 
 st.write(fig)
 # zvals_new = peaks()

@@ -16,7 +16,7 @@ def _get_data(path):
 def _split_ts(group):
     """Splits timeseries into new ones by detected peak locations"""
     if len(group) < WINDOW_LENGTH * 2:
-        group
+        return group
     else:
         s = group["int_c1"]
         s = s.clip(0)
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     st.write(fig)
 
-    fig, axes = plt.subplots(nrows=5, ncols=2)
+    fig, axes = plt.subplots(nrows=6, ncols=2)
     st.subheader("Examples of slicing using peaks and ONLY auxilin")
     for n in range(axes.shape[0]):
         sub = df[(df["file"] == file) & (df["particle"] == n)]
@@ -85,7 +85,7 @@ if __name__ == "__main__":
         s = s.clip(0)
         s = sklearn.preprocessing.minmax_scale(s)
 
-        axes[n, 1].plot(s)
+        axes[n, 1].plot(s, color = "black")
 
         _, properties = scipy.signal.find_peaks(s, prominence=(0.5, 1))
 
