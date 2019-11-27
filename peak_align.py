@@ -1,10 +1,7 @@
-import numpy as np
-from msalign import msalign
-import streamlit as st
 import matplotlib.pyplot as plt
-import pandas as pd
-from lib.utils import sample_groups
-from lib.math import resample_timeseries
+import numpy as np
+import streamlit as st
+from msalign import msalign
 
 np.random.seed(9)
 
@@ -42,18 +39,3 @@ ax[2].plot(peaks_aligned.T, alpha = 0.2, color = "black")
 ax[3].plot(np.median(peaks_aligned.T, axis = 1))
 
 st.write(fig)
-# zvals_new = peaks()
-#
-# fig, ax = plt.subplots(nrows = 2)
-# ax = ax.ravel()
-#
-# for s in zvals:
-#     ax[0].plot(s)
-#
-# for s in zvals_new:
-#     ax[1].plot(s)
-#
-# for a in ax:
-#     a.set_xlim(6000)
-#
-# st.write(fig)

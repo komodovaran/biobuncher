@@ -3,6 +3,15 @@ import parmap
 import scipy.interpolate
 from scipy import fftpack
 from lib.utils import timeit, est_proc
+import sklearn.mixture
+
+
+def div0(a, b):
+    """Converts all zero-division results to zeros"""
+    with np.errstate(divide = 'ignore', invalid = 'ignore'):
+        c = np.true_divide(a, b)
+        c[~ np.isfinite(c)] = 0  # -inf inf NaN
+    return c
 
 
 def smooth_spline_2d(image, **spline_kwargs):
@@ -102,16 +111,16 @@ def calc_steplength(df, x_col, y_col):
     """
     df[["dif_x", "dif_y"]] = (
         df[[x_col, y_col]]
-        .rolling(window=2)
-        .apply(lambda row: row[1] - row[0], raw=True)
+            .rolling(window = 2)
+            .apply(lambda row: row[1] - row[0], raw = True)
     )
     df["steplength"] = np.sqrt(df["dif_x"] ** 2 + df["dif_y"] ** 2)
     df["steplength"].replace(np.nan, 0, inplace = True)
-    df.drop(["dif_x", "dif_y"], axis=1, inplace=True)
+    df.drop(["dif_x", "dif_y"], axis = 1, inplace = True)
     return df["steplength"]
 
 
-def normalize_tensor(X, per_feature=False):
+def maxabs_tensor(X, per_feature = False):
     """
     Sample-wise max-value normalization of 3D array (tensor).
     This is not feature-wise normalization, to keep the ratios between extracted_features intact!
@@ -122,10 +131,28 @@ def normalize_tensor(X, per_feature=False):
         raise ValueError("Shape not a tensor")
 
     if per_feature:
-        arr_max = np.max(X, axis = 1, keepdims = True)
+        axis = 1
     else:
-        arr_max = np.max(X, axis = (1, 2), keepdims = True)
-    return np.squeeze(X / arr_max)
+        axis = (1, 2)
+    arr_max = np.max(X, axis = axis, keepdims = True)
+
+    X = div0(X, arr_max)
+    return np.squeeze(X)
+
+
+def znorm_tensor(X, per_feature):
+    if len(X.shape) == 2:
+        X = X[np.newaxis, :, :]
+    if not len(X.shape) == 3:
+        raise ValueError("Shape not a tensor")
+
+    if per_feature:
+        axis = 1
+    else:
+        axis = (1, 2)
+    arr_mean = np.mean(X, axis = axis, keepdims = True)
+    arr_std = np.mean(X, axis = axis, keepdims = True)
+    return np.squeeze((X - arr_mean) / arr_std)
 
 
 def z_score_norm(x):
@@ -134,11 +161,68 @@ def z_score_norm(x):
     """
     return (x - np.mean(x)) / np.std(x)
 
+
 def maxabs_norm(x):
     """
     Maxabs normalizes array
     """
     return x / x.max(axis = (0, 1))
+
+
+def fit_gaussian_mixture(arr, k_states):
+    """
+    Fits k gaussians to a set of data.
+    Parameters
+    ----------
+    arr:
+        Input data (wil be unravelled to single-sample shape)
+    k_states:
+        Maximum number of states to test for:
+    Returns
+    -------
+    Parameters zipped as (means, sigmas, weights), BICs and best k if found by BIC method
+    Returned as a dictionary to avoid unpacking the wrong things when having few parameters
+    Examples
+    --------
+    # For plotting the returned parameters:
+    for i, params in enumerate(gaussfit_params):
+        m, s, w = params
+        ax.plot(xpts, w * scipy.stats.norm.pdf(xpts, m, s))
+        sum.append(np.array(w * stats.norm.pdf(xpts, m, s)))
+    joint = np.sum(sum, axis = 0)
+    ax.plot(xpts, joint, color = "black", alpha = 0.05)
+    """
+    if len(arr) < 2:
+        return None, None
+
+    arr = arr.reshape(-1, 1)
+
+    bics_ = []
+    gs_ = []
+    best_k = None
+    if type(k_states) == range:
+        for k in k_states:
+            g = sklearn.mixture.GaussianMixture(n_components = k)
+            g.fit(arr)
+            bic = g.bic(arr)
+            gs_.append(g)
+            bics_.append(bic)
+
+        best_k = np.argmin(bics_).astype(int) + 1
+        g = sklearn.mixture.GaussianMixture(n_components = best_k)
+    else:
+        g = sklearn.mixture.GaussianMixture(n_components = k_states)
+
+    g.fit(arr)
+
+    weights = g.weights_.ravel()
+    means = g.means_.ravel()
+    sigs = np.sqrt(g.covariances_.ravel())
+
+    params = [(m, s, w) for m, s, w in zip(means, sigs, weights)]
+    params = sorted(params, key = lambda tup: tup[0])
+
+    return dict(params = params, bics = bics_, best_k = best_k)
 
 
 def resample_timeseries(y, new_length = None):
@@ -214,19 +298,20 @@ def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
 
     return signals
 
+
 def nd_fft_ts(y, center = False, log_transform = False):
     """
     Calculates fast fourier transform for each feature in a ND-timeseries
     """
     y = y.reshape(len(y), -1)
     if center:
-        y = y - np.mean(y, axis = 0) # center the signal to avoid zero component
+        y = y - np.mean(y, axis = 0)  # center the signal to avoid zero component
     ndim = y.shape[1]
     new_y = np.zeros((y.shape[0] // 2, ndim))
     for i in range(ndim):
         yf = fftpack.fft(y[:, i])
         # Remove mirrored and negative parts
-        yf_single = np.abs(yf[:len(y)//2])
+        yf_single = np.abs(yf[:len(y) // 2])
         # log transform may make it nicer visually
         if log_transform:
             yf_single = np.log(1 + yf_single)
@@ -267,6 +352,7 @@ def fft_bg_2d(image, K = 2, percentile = 10):
     image_filtered = np.real(fftpack.ifft2(F_dim))
     return image_filtered
 
+
 @timeit
 def fft_bg_video(video, K = 2, percentile = 10, return_subtracted = True):
     """
@@ -276,3 +362,16 @@ def fft_bg_video(video, K = 2, percentile = 10, return_subtracted = True):
     """
     bg = np.array(parmap.map(fft_bg_2d, video, K, percentile, pm_processes = est_proc()))
     return video - bg if return_subtracted else bg
+
+
+def mean_squared_error(A, B, axis):
+    """Calculates mean squared error between two ndarrays on a given axis"""
+    return ((A - B) ** 2).mean(axis = axis)
+
+
+def ragged_stat(arr, f):
+    """
+    Returns the statistic of a ragged array, given a function
+    """
+    arr = np.array(arr)
+    return f(np.concatenate(arr).ravel())
