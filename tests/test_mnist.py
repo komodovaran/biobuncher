@@ -6,6 +6,7 @@ from tensorflow.python.keras.layers import Dense, Dropout, Activation, Flatten
 from tensorflow.python.keras.layers import Convolution2D, MaxPooling2D
 from tensorflow.python.keras.utils import np_utils
 from tensorflow.python.keras.datasets import mnist
+import tensorflow.keras.backend as K
 
 batch_size = 128
 
@@ -24,6 +25,9 @@ X_test /= 255
 Y_train = np_utils.to_categorical(y_train, 10)
 Y_test = np_utils.to_categorical(y_test, 10)
 
+def gelu(x):
+    return 0.5 * x * (1 + K.tanh(x * 0.7978845608 * (1 + 0.044715 * x * x)))
+
 # 7. Define model architecture
 model = Sequential()
 
@@ -31,6 +35,7 @@ model.add(Convolution2D(32, (6, 6), activation='relu', input_shape=(28,28,1)))
 model.add(Convolution2D(20, (6, 6), activation='relu'))
 model.add(MaxPooling2D(pool_size=(2,2)))
 model.add(Dropout(0.25))
+model.add(Activation(gelu))
 
 model.add(Flatten())
 model.add(Dense(128, activation='relu'))

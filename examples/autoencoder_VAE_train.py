@@ -1,192 +1,351 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from tensorflow.python.keras.layers import Lambda, Input, Dense
-from tensorflow.python.keras.models import Model
-from tensorflow.python.keras.datasets import mnist
-from tensorflow.python.keras.losses import mse, binary_crossentropy
-from tensorflow.python.keras.utils import plot_model
-from tensorflow.python.keras import backend as K
-
-import numpy as np
+"""
+https://arxiv.org/abs/1312.6114
+"""
 import matplotlib.pyplot as plt
-import argparse
-import os
+import numpy as np
+import sklearn.model_selection
+import tensorflow as tf
+from tensorflow.keras import backend as K, metrics
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import Model
+from lib.tfcustom import VariableRepeatVector
+from tensorflow.python.keras.layers import CuDNNLSTM
 
-
-# reparameterization trick
-# instead of sampling from Q(z|X), sample epsilon = N(0,I)
-# z = z_mean + sqrt(var) * epsilon
-def sampling(args):
-    """Reparameterization trick by sampling from an isotropic unit Gaussian.
-
-    # Arguments
-        args (tensor): mean and log of variance of Q(z|X)
-
-    # Returns
-        z (tensor): sampled latent vector
-    """
-
-    z_mean, z_log_var = args
-    batch = K.shape(z_mean)[0]
-    dim = K.int_shape(z_mean)[1]
-    # by default, random_normal has mean = 0 and std = 1.0
-    epsilon = K.random_normal(shape=(batch, dim))
-    return z_mean + K.exp(0.5 * z_log_var) * epsilon
-
-
-def plot_results(models,
-                 data,
-                 batch_size=128,
-                 model_name="vae_mnist"):
-    """Plots labels and MNIST digits as a function of the 2D latent vector
-
-    # Arguments
-        models (tuple): encoder and decoder models
-        tom_data (tuple): test tom_data and label
-        batch_size (int): prediction batch size
-        model_name (string): which model is using this function
-    """
-
-    encoder, decoder = models
-    x_test, y_test = data
-    os.makedirs(model_name, exist_ok=True)
-
-    filename = os.path.join(model_name, "vae_mean.png")
-    # display a 2D plot of the digit classes in the latent space
-    z_mean, _, _ = encoder.predict(x_test,
-                                   batch_size=batch_size)
-    plt.figure(figsize=(12, 10))
-    plt.scatter(z_mean[:, 0], z_mean[:, 1], c=y_test)
-    plt.colorbar()
-    plt.xlabel("z[0]")
-    plt.ylabel("z[1]")
-    plt.savefig(filename)
-    plt.show()
-
-    filename = os.path.join(model_name, "digits_over_latent.png")
-    # display a 30x30 2D manifold of digits
-    n = 30
-    digit_size = 28
-    figure = np.zeros((digit_size * n, digit_size * n))
-    # linearly spaced coordinates corresponding to the 2D plot
-    # of digit classes in the latent space
-    grid_x = np.linspace(-4, 4, n)
-    grid_y = np.linspace(-4, 4, n)[::-1]
-
-    for i, yi in enumerate(grid_y):
-        for j, xi in enumerate(grid_x):
-            z_sample = np.array([[xi, yi]])
-            x_decoded = decoder.predict(z_sample)
-            digit = x_decoded[0].reshape(digit_size, digit_size)
-            figure[i * digit_size: (i + 1) * digit_size,
-                   j * digit_size: (j + 1) * digit_size] = digit
-
-    plt.figure(figsize=(10, 10))
-    start_range = digit_size // 2
-    end_range = (n - 1) * digit_size + start_range + 1
-    pixel_range = np.arange(start_range, end_range, digit_size)
-    sample_range_x = np.round(grid_x, 1)
-    sample_range_y = np.round(grid_y, 1)
-    plt.xticks(pixel_range, sample_range_x)
-    plt.yticks(pixel_range, sample_range_y)
-    plt.xlabel("z[0]")
-    plt.ylabel("z[1]")
-    plt.imshow(figure, cmap='Greys_r')
-    plt.savefig(filename)
-    plt.show()
-
-
-# MNIST dataset
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
-
-image_size = x_train.shape[1]
-original_dim = image_size * image_size
-x_train = np.reshape(x_train, [-1, original_dim])
-x_test = np.reshape(x_test, [-1, original_dim])
-x_train = x_train.astype('float32') / 255
-x_test = x_test.astype('float32') / 255
-
-# network parameters
-input_shape = (original_dim, )
-intermediate_dim = 512
 batch_size = 128
+original_dim = 784
 latent_dim = 2
-epochs = 50
+intermediate_dim = 256
+epochs = 200
+epsilon_std = 1
 
-# VAE model = encoder + decoder
-# build encoder model
-inputs = Input(shape=input_shape, name='encoder_input')
-x = Dense(intermediate_dim, activation='relu')(inputs)
-z_mean = Dense(latent_dim, name='z_mean')(x)
-z_log_var = Dense(latent_dim, name='z_log_var')(x)
 
-# use reparameterization trick to push the sampling out as input
-# note that "output_shape" isn't necessary with the TensorFlow backend
-z = Lambda(sampling, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
+def get_timeseries_data(length=50, n_each_class=200):
+    """
+    Make 3 types of sequence data with variable length
+    """
+    data = []
+    for _ in range(n_each_class):
+        r = np.random.normal
+        l = np.linspace
+        i = np.random.randint
 
-# instantiate encoder model
-encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
-encoder.summary()
-plot_model(encoder, to_file='vae_mlp_encoder.png', show_shapes=True)
+        x_noisy = np.column_stack(
+            (
+                (np.cos(l(i(1, 5), 5, length)) + r(0, 0.2, length)),
+                ((1 + np.sin(l(i(1, 20), 5, length)) + r(0, 0.2, length))),
+            )
+        )
 
-# build decoder model
-latent_inputs = Input(shape=(latent_dim,), name='z_sampling')
-x = Dense(intermediate_dim, activation='relu')(latent_inputs)
-outputs = Dense(original_dim, activation='sigmoid')(x)
+        x_wavy = np.column_stack(
+            (
+                (np.cos(l(0, i(1, 5), length)) + r(0, 0.2, length)),
+                ((2 + np.sin(l(i(1, 20), 20, length)) + r(0, 0.2, length))),
+            )
+        )
 
-# instantiate decoder model
-decoder = Model(latent_inputs, outputs, name='decoder')
-decoder.summary()
-plot_model(decoder, to_file='vae_mlp_decoder.png', show_shapes=True)
+        x_spikes = np.column_stack(
+            (
+                (np.cos(l(i(1, 5), 20, length)) + r(0, 0.2, length)) ** 3,
+                (
+                    (1 + np.sin(l(i(1, 20), 20, length)) + r(0, 0.2, length))
+                    ** 3
+                ),
+            )
+        )
 
-# instantiate VAE model
-outputs = decoder(encoder(inputs)[2])
-vae = Model(inputs, outputs, name='vae_mlp')
+        # Randomly cut the begining of traces and fill in with zeroes to mimick short traces
+        zero = np.random.randint(1, length // 2)
+        # x_noisy[0:zero] = 0
+        # x_wavy[0:zero] = 0
+        # x_spikes[0:zero] = 0
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    help_ = "Load h5 model trained weights"
-    parser.add_argument("-w", "--weights", help=help_)
-    help_ = "Use mse loss instead of binary cross entropy (default)"
-    parser.add_argument("-m",
-                        "--mse",
-                        help=help_, action='store_true')
-    args = parser.parse_args()
-    models = (encoder, decoder)
-    data = (x_test, y_test)
+        data.append(x_noisy)
+        data.append(x_wavy)
+        data.append(x_spikes)
 
-    # VAE loss = mse_loss or xent_loss + kl_loss
-    if args.mse:
-        reconstruction_loss = mse(inputs, outputs)
-    else:
-        reconstruction_loss = binary_crossentropy(inputs,
-                                                  outputs)
+    data = np.array(data)
+    data = data.reshape((-1, length, 2))
 
-    reconstruction_loss *= original_dim
-    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-    kl_loss = K.sum(kl_loss, axis=-1)
-    kl_loss *= -0.5
-    vae_loss = K.mean(reconstruction_loss + kl_loss)
+    X_train, X_test = sklearn.model_selection.train_test_split(
+        data, train_size=0.8
+    )
+
+    mu = np.mean(X_train, axis=(0, 1))
+    sg = np.std(X_train, axis=(0, 1))
+    X_train = (X_train - mu) / sg
+    X_test = (X_test - mu) / sg
+
+    return X_train, X_test
+
+
+def sampling(args):
+    z_mean, z_log_var = args
+    epsilon = K.random_normal(
+        shape=(K.shape(z_mean)[0], latent_dim), mean=0.0, stddev=epsilon_std
+    )
+    return z_mean + K.exp(z_log_var / 2) * epsilon
+
+
+def crossentropy_loss(inputs, outputs):
+    return K.cast(
+        K.shape(K.flatten(inputs)), tf.float32
+    ) * metrics.binary_crossentropy(K.flatten(inputs), K.flatten(outputs))
+
+
+def mse_loss(inputs, outputs):
+    return tf.reduce_sum(metrics.mse(inputs, outputs))
+
+
+def kullback_leibner_loss(z_mean, z_log_var):
+    return - 0.5 * tf.reduce_sum(1 + z_log_var - z_mean ** 2 - tf.exp(z_log_var), 1)
+
+
+def vae_model():
+    """VAE model"""
+    inputs = Input(shape=(784, 1))
+
+    # x = LSTM(intermediate_dim, return_sequences = False)(inputs)
+
+    h = Dense(intermediate_dim, activation="relu")(inputs)
+    z_mean = Dense(latent_dim)(h)
+    z_log_var = Dense(latent_dim)(h)
+
+    # note that "output_shape" isn't necessary with the TensorFlow backend
+    z = Lambda(sampling, output_shape=(latent_dim,))([z_mean, z_log_var])
+
+    # we instantiate these layers separately so as to reuse them later
+    decoder_h = Dense(intermediate_dim, activation="relu")
+    decoder_mean = Dense(original_dim, activation="sigmoid")
+    h_decoded = decoder_h(z)
+    outputs_pre = decoder_mean(h_decoded)
+
+    outputs = Reshape((784, 1))(outputs_pre)
+
+    # instantiate VAE model
+    vae = Model(inputs, outputs)
+    reconstr_loss = mse_loss(inputs, outputs)
+
+    kl_loss = kullback_leibner_loss(z_mean, z_log_var)
+
+    vae_loss = tf.reduce_mean(reconstr_loss + kl_loss)
+
     vae.add_loss(vae_loss)
-    vae.compile(optimizer='adam')
+    vae.compile(optimizer="rmsprop")
     vae.summary()
-    plot_model(vae,
-               to_file='vae_mlp.png',
-               show_shapes=True)
 
-    if args.weights:
-        vae.load_weights(args.weights)
-    else:
-        # train the autoencoder
-        vae.fit(x_train,
-                epochs=epochs,
-                batch_size=batch_size,
-                validation_data=(x_test, None))
-        vae.save_weights('vae_mlp_mnist.h5')
+    encoder = Model(inputs, z_mean)
+    decoder_input = Input(shape=(latent_dim,))
+    _h_decoded = decoder_h(decoder_input)
+    _x_decoded_mean = decoder_mean(_h_decoded)
+    generator = Model(decoder_input, _x_decoded_mean)
 
-    plot_results(models,
-                 data,
-                 batch_size=batch_size,
-                 model_name="vae_mlp")
+    return vae, encoder, generator
+
+
+def conv_vae_2d():
+    inputs = Input(
+        shape=(28, 28, 1)
+    )  # must have last dimension to be recognized as image
+
+    x = Conv2D(32, 3, padding="same", activation="relu")(inputs)
+    x = Conv2D(64, 3, padding="same", activation="relu", strides=(2, 2))(x)
+    x = Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = Conv2D(64, 3, padding="same", activation="relu")(x)
+
+    # need to know the shape of the network here for the decoder
+    shape_before_flattening = K.int_shape(x)
+
+    x = Flatten()(x)
+    x = Dense(32, activation="relu")(x)
+
+    # Two outputs, latent mean and (log)variance
+    z_mu = Dense(latent_dim)(x)
+    z_log_sigma = Dense(latent_dim)(x)
+
+    # sample vector from the latent distribution
+    z = Lambda(sampling)([z_mu, z_log_sigma])
+
+    ## DECODER ARCHITECTURE
+    # decoder takes the latent distribution sample as input
+    decoder_input = Input(K.int_shape(z)[1:])
+
+    # Expand to 784 total pixels
+    x = Dense(np.prod(shape_before_flattening[1:]), activation="relu")(
+        decoder_input
+    )
+
+    # unflatten back to image
+    x = Reshape(shape_before_flattening[1:])(x)
+
+    # use Conv2DTranspose to reverse the conv layers from the encoder
+    x = Conv2DTranspose(
+        32, 3, padding="same", activation="relu", strides=(2, 2)
+    )(x)
+    x = Conv2D(1, 3, padding="same", activation="sigmoid")(x)
+
+    # decoder model statement
+    decoder = Model(decoder_input, x)
+
+    # apply the decoder to the sample from the latent distribution
+    outputs = decoder(z)
+
+    xent_loss = crossentropy_loss(inputs, outputs)
+    kl_loss = kullback_leibner_loss(z_mu, z_log_sigma)
+    vae_loss = K.mean(xent_loss + kl_loss)
+
+    vae = Model(inputs, outputs)
+    vae.add_loss(vae_loss)
+    vae.compile(optimizer="adam")
+
+    return vae
+
+
+def lstm_vae_1d():
+    inputs = Input(shape=(50, 2))  # (timesteps, features)
+
+    xe = CuDNNLSTM(128, return_sequences=False)(inputs)
+
+    # need to know the shape of the network here for the decoder
+    shape_before_flattening = K.int_shape(xe)
+    x = Flatten()(xe)
+
+    # Two outputs, latent mean and (log)variance
+    z_mu = Dense(latent_dim)(x)
+    z_log_var = Dense(latent_dim)(x)
+
+    # sample vector from the latent distribution
+    z = Lambda(sampling)([z_mu, z_log_var])
+
+    ## DECODER ARCHITECTURE
+    # decoder takes the latent distribution sample as input
+    decoder_input = Input(K.int_shape(z)[1:])
+
+    x = Dense(np.prod(shape_before_flattening[1:]), activation="relu")(K.int_shape(z)[1:])
+
+    # TODO: make it a single model for VariableRepeatVector to work
+    # x = VariableRepeatVector()([inputs, x])
+    # print(x.shape)
+    x = RepeatVector(50)(x)
+    x = CuDNNLSTM(128, return_sequences=True)(x)
+    x = TimeDistributed(Dense(2, activation = None))(x)
+
+    # decoder model statement
+    decoder = Model(decoder_input, x)
+
+    # apply the decoder to the sample from the latent distribution
+    outputs = decoder(z)
+
+    # xent_loss = crossentropy_loss(inputs, outputs)
+
+    reconstr_loss = mse_loss(inputs, outputs)
+    kl_loss = kullback_leibner_loss(z_mu, z_log_var)
+    vae_loss = tf.reduce_sum(kl_loss + reconstr_loss)
+
+    vae = Model(inputs, outputs)
+    vae.add_loss(vae_loss)
+    vae.compile(optimizer="rmsprop")
+    vae.summary()
+    return vae
+
+
+def lstm_vae_1d_repeatvector():
+    inputs = Input(shape=(50, 2))  # (timesteps, features)
+
+    xe = CuDNNLSTM(128, return_sequences=False)(inputs)
+
+    # need to know the shape of the network here for the decoder
+    shape_before_flattening = K.int_shape(xe)
+    x = Flatten()(xe)
+
+    # Two outputs, latent mean and (log)variance
+    z_mu = Dense(latent_dim)(x)
+    z_log_var = Dense(latent_dim)(x)
+
+    # sample vector from the latent distribution
+    z = Lambda(sampling)([z_mu, z_log_var])
+
+    ## DECODER ARCHITECTURE
+    x = Dense(np.prod(shape_before_flattening[1:]), activation="elu")(z)
+    x = VariableRepeatVector()([inputs, x])
+
+    x = CuDNNLSTM(128, return_sequences=True)(x)
+    outputs = TimeDistributed(Dense(2, activation = None))(x)
+
+    reconstr_loss = mse_loss(inputs, outputs)
+    kl_loss = kullback_leibner_loss(z_mu, z_log_var)
+    vae_loss = tf.reduce_sum(kl_loss + reconstr_loss)
+
+    vae = Model(inputs, outputs)
+    vae.add_loss(vae_loss)
+    vae.compile(optimizer="rmsprop")
+    vae.summary()
+    return vae
+
+
+# train the VAE on MNIST digits
+# (x_train, y_train), (x_test, y_test) = mnist.load_data()
+#
+# x_train = x_train.astype("float32") / 255.0
+# x_test = x_test.astype("float32") / 255.0
+
+# x_train = np.expand_dims(x_train, axis = -1)
+# x_test = np.expand_dims(x_test, axis = -1)
+
+# x_train = resample(x_train, n_samples = 1000)
+# x_test = resample(x_test, n_samples = 1000)
+
+# Train the VAE on simulated timeseries
+x_train, x_test = get_timeseries_data(length=50, n_each_class=1000)
+
+vae = lstm_vae_1d_repeatvector()
+vae.fit(
+    x=x_train,
+    y=None,
+    shuffle=True,
+    epochs=epochs,
+    batch_size=batch_size,
+    validation_data=(x_test, None),
+)
+
+x_pred = vae.predict(x_test[0:10])
+
+fig, ax = plt.subplots(ncols=2, nrows=4)
+
+for i in range(4):
+    ax[i, 0].plot(x_test[i])
+    ax[i, 1].plot(x_pred[i])
+plt.show()
+
+quit()
+
+# x_test_encoded = encoder.predict(x_test, batch_size = batch_size)
+# plt.figure(figsize = (6, 6))
+# plt.scatter(x_test_encoded[:, 0], x_test_encoded[:, 1])
+# plt.colorbar()
+# plt.show()
+
+# encoded = encoder.predict(x_train[0:5])
+
+#
+# # display a 2D manifold of the digits
+# n = 15  # figure with 15x15 digits
+# digit_size = 28
+# figure = np.zeros((digit_size * n, digit_size * n))
+# # linearly spaced coordinates on the unit square were transformed through the inverse CDF (ppf) of the Gaussian
+# # to produce values of the latent variables z, since the prior of the latent space is Gaussian
+# grid_x = norm.ppf(np.linspace(0.05, 0.95, n))
+# grid_y = norm.ppf(np.linspace(0.05, 0.95, n))
+#
+# for i, yi in enumerate(grid_x):
+#     for j, xi in enumerate(grid_y):
+#         z_sample = np.array([[xi, yi]])
+#         x_decoded = generator.predict(z_sample)
+#         digit = x_decoded[0].reshape(digit_size, digit_size)
+#         figure[
+#             i * digit_size : (i + 1) * digit_size,
+#             j * digit_size : (j + 1) * digit_size,
+#         ] = digit
+#
+# plt.figure(figsize=(10, 10))
+# plt.imshow(figure, cmap="Greys_r")
+# plt.show()

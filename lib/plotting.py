@@ -1,4 +1,8 @@
+import base64
+from io import StringIO
+
 import matplotlib.lines
+import streamlit as st
 from matplotlib import pyplot as plt
 import numpy as np
 
@@ -36,13 +40,16 @@ def plot_c0_c1(
 
     if separate_ax:
         ax_ = ax.twinx()
+        ax.tick_params(axis='y', colors=color0)
+        ax_.tick_params(axis = 'y', colors = color1)
     else:
         ax_ = ax
     ax_.plot(frame, int_c1, color=color1, alpha=alpha)
 
-    # for a in ax, ax_:
-    #     a.set_yticks(())
-    return ax if not separate_ax else ax, ax_
+    if separate_ax:
+        return ax, ax_
+    else:
+        return ax,
 
 
 def plot_c0_c1_errors(
@@ -91,3 +98,47 @@ def plot_c0_c1_errors(
         # a.set_yticks(())
         a.set_xticks(())
     return ax if not separate_ax else ax, ax_
+
+
+def sanity_plot(X, title):
+    """
+    Sanity check plot
+    """
+    fig, ax = plt.subplots(nrows = 3, ncols = 3)
+    plt.suptitle(title)
+    ax = ax.ravel()
+    for n in range(len(ax)):
+        try:
+            ax[n].plot(X[n])
+        except IndexError:
+            fig.delaxes(ax[n])
+    plt.tight_layout()
+    plt.savefig("")
+    plt.show()
+
+
+def svg_write(fig, center = True):
+    """
+    Renders a matplotlib figure object to SVG.
+    Disable center to left-margin align like other objects.
+    """
+    # Save to stringIO instead of file
+    imgdata = StringIO()
+    fig.savefig(imgdata, format = "svg")
+
+    # Retrieve saved string
+    imgdata.seek(0)
+    svg_string = imgdata.getvalue()
+
+    # Encode as base 64
+    b64 = base64.b64encode(svg_string.encode("utf-8")).decode("utf-8")
+
+    # Add some CSS on top
+    css_justify = "center" if center else "left"
+    css = '<p style="text-align:center; display: flex; justify-content: {};">'.format(
+        css_justify
+    )
+    html = r'{}<img src="data:image/svg+xml;base64,{}"/>'.format(css, b64)
+
+    # Write the HTML
+    st.write(html, unsafe_allow_html = True)

@@ -3,6 +3,7 @@ import pandas as pd
 import scipy.io
 from multiprocessing import Pool, cpu_count
 from lib.utils import remove_parent_dir
+import re
 
 
 def cme_tracks_to_pandas(mat_path, rm_n_parent_dir = 4):
@@ -47,15 +48,30 @@ def cme_tracks_to_pandas(mat_path, rm_n_parent_dir = 4):
     return pd.concat(df)
 
 if __name__ == "__main__":
-    IN_PATH = "/media/tklab/linux-data/Data/CLTA-TagRFP EGFP-Gak-A8/**/ProcessedTracks.mat"#"data/kangmin_data/**/ProcessedTracks.mat"
-    OUT_PATH = "results/intensities/tracks-CLTA-TagRFP EGFP-Gak-A8.h5"
+    NAME = "CLTA-TagRFP EGFP-Gak-A8"
 
+    IN_PATH = "/media/tklab/linux-data/Data/{}/**/ProcessedTracks.mat".format(NAME)#"data/kangmin_data/**/ProcessedTracks.mat"
+    OUT_PATH = "results/intensities/tracks-{}.h5".format(NAME)
+
+    experiment_name = IN_PATH.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
+    print("Processed experiment search string: ", experiment_name)
     files = sorted(glob(IN_PATH, recursive = True))
-    print("Found files:")
+    print("\nFound files:")
     [print(f) for f in files]
+    print()
+
+    accepted_files = []
+    for f in files:
+        name_i = f.split("/")[-5].replace(" ", "_").replace("-", "_").upper()
+        if name_i == experiment_name:
+            accepted_files.append(f)
+        else:
+            print("Rejected: {}".format(f))
+    print("\nAccepted files:")
+    [print(f) for f in accepted_files]
 
     with Pool(cpu_count()) as p:
-        df = pd.concat(p.map(cme_tracks_to_pandas, files))
+        df = pd.concat(p.map(cme_tracks_to_pandas, accepted_files))
 
     print("NaNs:\n:", df.isna().sum())
     print("Number of files in df: {}".format(len(df["file"].unique())))
@@ -64,4 +80,4 @@ if __name__ == "__main__":
     df.to_hdf(OUT_PATH, key = "df")
 
     # Separate tracks with only good traces as determined by CME (might not be used)
-    df[df["catIdx__"] <= 4].to_hdf(OUT_PATH[:-3] + "-catidx.h5", key = "df")
+    # df[df["catIdx__"] <= 4].to_hdf(OUT_PATH[:-3] + "-catidx.h5", key = "df")

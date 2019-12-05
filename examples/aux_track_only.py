@@ -12,7 +12,7 @@ from configobj import ConfigObj
 import lib.math
 import lib.plotting
 import lib.utils
-from get_tracks import _get_videos, _tiffpath
+from get_track_positions import _get_videos, _tiffpath
 
 
 def _SET_CONFIG():

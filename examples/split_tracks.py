@@ -38,7 +38,7 @@ def _split_ts(group):
 
 
 if __name__ == "__main__":
-    PATH = "results/intensities/tracks-cme.h5"
+    PATH = "../results/intensities/tracks-cme.h5"
 
     df = _get_data(PATH)
 

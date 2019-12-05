@@ -4,6 +4,7 @@ import scipy.interpolate
 from scipy import fftpack
 from lib.utils import timeit, est_proc
 import sklearn.mixture
+from tqdm import tqdm
 
 
 def div0(a, b):
@@ -155,6 +156,40 @@ def znorm_tensor(X, per_feature):
     return np.squeeze((X - arr_mean) / arr_std)
 
 
+
+def array_stats(X):
+    """
+    Calculates and returns overall statistics for each feature in an ndarray
+    """
+    X_stat = np.row_stack(X)
+    mean = np.mean(X_stat, axis = 0)
+    median = np.median(X_stat, axis = 0)
+    stddev = np.std(X_stat, axis = 0)
+    q25 = np.quantile(X_stat, q = 0.25, axis = 0)
+    q75 = np.quantile(X_stat, q = 0.75, axis = 0)
+    iqr = q75 - q25
+
+    return mean, stddev, median, iqr
+
+
+def modified_z_score(x):
+    """
+    Modified z-score based on median, useful for detecting extreme outliers.
+    Default cutoff is 3.5 (score above is outlier)
+    """
+    med = np.median(x)
+    med_abs_dev = np.median(np.abs(x - med))
+    modified_z = np.abs((0.6745 * (x - med)) / med_abs_dev)
+    return modified_z
+
+def standardize(X, mu, sigma):
+    """
+    Standardizes given samples individually to (0, 1) normal distribution.
+    Works on unevenly sized arrays too.
+    """
+    return np.array([((xi - mu) / sigma) for xi in X])
+
+
 def z_score_norm(x):
     """
     Z-score normalizes array
@@ -169,14 +204,16 @@ def maxabs_norm(x):
     return x / x.max(axis = (0, 1))
 
 
-def fit_gaussian_mixture(arr, k_states):
+def fit_gaussian_mixture(
+    arr, k_min=None, k_max=None, k=None, covariance_type="full", step_size = 1
+):
     """
     Fits k gaussians to a set of data.
     Parameters
     ----------
     arr:
         Input data (wil be unravelled to single-sample shape)
-    k_states:
+    k_min:
         Maximum number of states to test for:
     Returns
     -------
@@ -192,37 +229,40 @@ def fit_gaussian_mixture(arr, k_states):
     joint = np.sum(sum, axis = 0)
     ax.plot(xpts, joint, color = "black", alpha = 0.05)
     """
-    if len(arr) < 2:
-        return None, None
-
-    arr = arr.reshape(-1, 1)
-
-    bics_ = []
+    bics = []
     gs_ = []
+    k_ = []
     best_k = None
-    if type(k_states) == range:
-        for k in k_states:
-            g = sklearn.mixture.GaussianMixture(n_components = k)
-            g.fit(arr)
-            bic = g.bic(arr)
-            gs_.append(g)
-            bics_.append(bic)
 
-        best_k = np.argmin(bics_).astype(int) + 1
-        g = sklearn.mixture.GaussianMixture(n_components = best_k)
+    if k is None:
+        for k in tqdm(range(k_min, k_max + 1, step_size)):
+            gmm = sklearn.mixture.GaussianMixture(
+                n_components=k, covariance_type=covariance_type
+            )
+            gmm.fit(arr)
+            bic = gmm.bic(arr)
+            gs_.append(gmm)
+            bics.append(bic)
+            k_.append(k)
+
+        best_k = np.argmin(bics).astype(int) + 1
     else:
-        g = sklearn.mixture.GaussianMixture(n_components = k_states)
+        best_k = k
 
-    g.fit(arr)
+    gmm = sklearn.mixture.GaussianMixture(
+        n_components = best_k, covariance_type = covariance_type
+    )
 
-    weights = g.weights_.ravel()
-    means = g.means_.ravel()
-    sigs = np.sqrt(g.covariances_.ravel())
+    gmm.fit(arr)
+
+    weights = gmm.weights_.ravel()
+    means = gmm.means_.ravel()
+    sigs = np.sqrt(gmm.covariances_.ravel())
 
     params = [(m, s, w) for m, s, w in zip(means, sigs, weights)]
-    params = sorted(params, key = lambda tup: tup[0])
+    params = sorted(params, key=lambda tup: tup[0])
 
-    return dict(params = params, bics = bics_, best_k = best_k)
+    return gmm, params, bics, best_k, k_
 
 
 def resample_timeseries(y, new_length = None):

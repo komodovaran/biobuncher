@@ -1,18 +1,21 @@
-import base64
 import itertools
 import math
 import multiprocessing as mp
 import random
 import time
-from io import StringIO
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import parmap
-import streamlit as st
 from tensorflow.python.keras.utils import Sequence
+import datetime
 
+def time_now():
+    """
+    Returns the current YMD-HM formatted date
+    """
+    return datetime.datetime.now().strftime("%Y%m%d-%H%M")
 
 def est_proc():
     """
@@ -346,28 +349,3 @@ class BucketedSequence(Sequence):
         raise ValueError("out of bounds")
 
 
-def svg_write(fig, center = True):
-    """
-    Renders a matplotlib figure object to SVG.
-    Disable center to left-margin align like other objects.
-    """
-    # Save to stringIO instead of file
-    imgdata = StringIO()
-    fig.savefig(imgdata, format = "svg")
-
-    # Retrieve saved string
-    imgdata.seek(0)
-    svg_string = imgdata.getvalue()
-
-    # Encode as base 64
-    b64 = base64.b64encode(svg_string.encode("utf-8")).decode("utf-8")
-
-    # Add some CSS on top
-    css_justify = "center" if center else "left"
-    css = '<p style="text-align:center; display: flex; justify-content: {};">'.format(
-        css_justify
-    )
-    html = r'{}<img src="data:image/svg+xml;base64,{}"/>'.format(css, b64)
-
-    # Write the HTML
-    st.write(html, unsafe_allow_html = True)
