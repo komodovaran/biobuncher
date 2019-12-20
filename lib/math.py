@@ -156,7 +156,6 @@ def znorm_tensor(X, per_feature):
     return np.squeeze((X - arr_mean) / arr_std)
 
 
-
 def array_stats(X):
     """
     Calculates and returns overall statistics for each feature in an ndarray
@@ -182,7 +181,8 @@ def modified_z_score(x):
     modified_z = np.abs((0.6745 * (x - med)) / med_abs_dev)
     return modified_z
 
-def standardize(X, mu, sigma):
+
+def standardize(X: np.array, mu: float, sigma: float):
     """
     Standardizes given samples individually to (0, 1) normal distribution.
     Works on unevenly sized arrays too.
@@ -205,7 +205,7 @@ def maxabs_norm(x):
 
 
 def fit_gaussian_mixture(
-    arr, k_min=None, k_max=None, k=None, covariance_type="full", step_size = 1
+    arr, k_min = None, k_max = None, k = None, covariance_type = "full", step_size = 1
 ):
     """
     Fits k gaussians to a set of data.
@@ -237,7 +237,7 @@ def fit_gaussian_mixture(
     if k is None:
         for k in tqdm(range(k_min, k_max + 1, step_size)):
             gmm = sklearn.mixture.GaussianMixture(
-                n_components=k, covariance_type=covariance_type
+                n_components = k, covariance_type = covariance_type
             )
             gmm.fit(arr)
             bic = gmm.bic(arr)
@@ -260,7 +260,7 @@ def fit_gaussian_mixture(
     sigs = np.sqrt(gmm.covariances_.ravel())
 
     params = [(m, s, w) for m, s, w in zip(means, sigs, weights)]
-    params = sorted(params, key=lambda tup: tup[0])
+    params = sorted(params, key = lambda tup: tup[0])
 
     return gmm, params, bics, best_k, k_
 
@@ -285,7 +285,7 @@ def resample_timeseries(y, new_length = None):
     return new_y
 
 
-def peak_region_finder(y, lag = 30, threshold = 5, influence = 0):
+def peak_region_finder(y, lag = 30, threshold = 3.5, influence = 0):
     """
     Detects peak regions. See more at
     https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
@@ -415,3 +415,81 @@ def ragged_stat(arr, f):
     """
     arr = np.array(arr)
     return f(np.concatenate(arr).ravel())
+
+
+def full_width_half_max(x, y):
+    """
+    Calculates full width at half maximum for a set of x,y datapoints obtained
+    from a 1D data distribution (i.e. bin_position, bin_height)
+    """
+    half_max = np.max(y) / 2.
+    d = np.sign(half_max - np.array(y[0:-1])) - np.sign(half_max - np.array(y[1:]))
+    left_idx = np.where(d > 0)[0]
+    right_idx = np.where(d < 0)[-1]
+    return x[right_idx] - x[left_idx], x[left_idx], x[right_idx]
+
+
+def histpoints_w_err(
+    data, bins, normalized, remove_empty_bins = True, least_count = 5
+):
+    """
+    Converts unbinned data to x,y-curvefitable points with Poisson errors.
+
+    Parameters
+    ----------
+    data:
+        Unbinned input data
+    bins:
+        Number of bins, or defined bins
+    normalized:
+        Whether to normalize histogram (use normalization factor for plots)
+    remove_empty_bins:
+        Whether to remove bins with less than a certain number of counts,
+        to assume roughly gaussian errors on points (default 5)
+    least_count:
+        See above. Default is 5, according to theory
+
+    Returns
+    -------
+    x, y, y-error points and normalization constant
+
+    """
+    counts, bin_edges = np.histogram(data, bins = bins, density = normalized)
+    bin_centers = (bin_edges[1:] + bin_edges[:-1]) / 2
+    bin_err = np.sqrt(counts)
+
+    # Get the normalization constant
+    unnorm_counts, bin_edges = np.histogram(data, bins = bins, density = False)
+
+    # Generate fitting points
+    if remove_empty_bins:
+        true_counts, _ = np.histogram(
+            data, bins, density = False
+        )  # regardless of normalization, get actual counts per bin
+        x = bin_centers[
+            true_counts >= int(least_count)
+            ]  # filter along counts, to remove any value in the same position as an empty bin
+        y = counts[true_counts >= int(least_count)]
+        sy = bin_err[true_counts >= int(least_count)]
+    else:
+        x, y, sy = bin_centers, counts, bin_err
+
+    norm_const = np.sum(unnorm_counts * (bin_edges[1] - bin_edges[0]))
+
+    return x, y, sy, norm_const
+
+def round_up_to_odd(f):
+    """
+    Rounds a value up to the nearest odd integer
+    """
+    return int(np.ceil(f) // 2 * 2 + 1)
+
+
+def mean_abs_dev_outlier(array, cutoff = 3.5):
+    """
+    Finds outliers in array using mean absolute deviation, and returns
+    array of outliers detected at the same indices.
+    """
+    med = np.median(array)
+    modified_std = np.median(np.abs(array - med))
+    return modified_std, med+cutoff*modified_std

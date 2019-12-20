@@ -60,6 +60,13 @@ def flatten_list(input_list, as_array = False):
     return flat_lst
 
 
+def ravel_ragged(array):
+    """
+    Unravels ragged numpy arrays (arrays with sub-arrays of different sizes)
+    """
+    return np.ravel(list(itertools.chain(*array)))
+
+
 def groupby_parallel_apply(
     grouped_df, func, f_args = None, concat = True, n_jobs = -1
 ):
@@ -349,3 +356,38 @@ class BucketedSequence(Sequence):
         raise ValueError("out of bounds")
 
 
+def get_index(*args, index):
+    """
+    Returns indexed args.
+    """
+    return [a[index] for a in args]
+
+
+
+def count_adjacent_values(arr):
+    """
+    Returns start index and length of segments of equal values.
+
+    Example for plotting several axvspans:
+    --------------------------------------
+    adjs, lns = lib.count_adjacent_true(score)
+    t = np.arange(1, len(score) + 1)
+
+    for ax in axes:
+        for starts, ln in zip(adjs, lns):
+            alpha = (1 - np.mean(score[starts:starts + ln])) * 0.15
+            ax.axvspan(xmin = t[starts], xmax = t[starts] + (ln - 1), alpha = alpha, color = "red", zorder = -1)
+    """
+    arr = arr.ravel()
+
+    n = 0
+    same = [(g, len(list(l))) for g, l in itertools.groupby(arr)]
+    starts = []
+    lengths = []
+    for v, l in same:
+        _len = len(arr[n : n + l])
+        _idx = n
+        n += l
+        lengths.append(_len)
+        starts.append(_idx)
+    return starts, lengths

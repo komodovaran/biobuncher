@@ -1,37 +1,41 @@
 import itertools
 import os
+from typing import List
 
-import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
 
 import lib.math
 import lib.models
-from lib.tfcustom import VariableBatchGenerator, AnnealingVariableCallback
-from lib.plotting import sanity_plot
+from lib.tfcustom import (
+    VariableTimeseriesBatchGenerator,
+    AnnealingVariableCallback,
+    UpdateSparsityLevel,
+)
 from lib.utils import timeit
-from tensorflow.keras import backend as K
 
+sns.set_style("darkgrid")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "" # disable CUDA device for testing
 
 
-def _get_data(path):
+def _get_data(path: str) -> np.array:
     """
     Loads all traces
     """
-    X = np.load(path, allow_pickle = True)["data"]
+    X = np.load(path, allow_pickle=True)["data"]
     if X.shape[0] < 100:
         raise ValueError("File is suspiciously small. Recheck!")
     return X
 
 
 @timeit
-def _preprocess(X, path, max_batch_size, train_size):
+def _preprocess(X, n_features, max_batch_size, train_size):
     """
     Preprocess data into tensors and appropriate train/test sets
     """
@@ -42,130 +46,147 @@ def _preprocess(X, path, max_batch_size, train_size):
         X_test,
         idx_train,
         idx_test,
-    ) = sklearn.model_selection.train_test_split(X, idx, train_size = train_size)
-
-    # sanity_plot(X_test, "before normalization")
+    ) = sklearn.model_selection.train_test_split(X, idx, train_size=train_size)
 
     mu, sg, *_ = lib.math.array_stats(X)
     X_train, X_test = [
         lib.math.standardize(X, mu, sg) for X in (X_train, X_test)
     ]
 
-    np.savez(
-        path[:-4] + "_traintest.npz",
-        X_train = X_train,
-        X_test = X_test,
-        idx_train = idx_train,
-        idx_test = idx_test,
-        scale = (mu, sg),
-    )
-
-    # sanity_plot(X_test, "after normalization")
-
     data, lengths, sizes = [], [], []
     for X in X_train, X_test:
-        # Batch into variable batches to speed up
-        Xi = VariableBatchGenerator(
-            X = X.tolist(), max_batch_size = max_batch_size, shuffle = True
+        # Batch into variable batches to speed up (but see caveats)
+        Xi = VariableTimeseriesBatchGenerator(
+            X=X.tolist(),
+            max_batch_size=max_batch_size,
+            shuffle_samples=True,
+            shuffle_batches=True,
         )
 
         steps_per_epoch = Xi.steps_per_epoch
         batch_sizes = Xi.batch_sizes
 
         X = tf.data.Dataset.from_generator(
-            generator = Xi,
-            output_types = (tf.float64, tf.float64),
-            output_shapes = ((None, None, 2), (None, None, 2)),
+            generator=Xi,
+            output_types=(tf.float64, tf.float64),
+            output_shapes=((None, None, n_features), (None, None, n_features)),
         )
         sizes.append(batch_sizes)
         lengths.append(steps_per_epoch)
         data.append(X)
 
-    # Take a single batch and plot
-    # for n, (Xi, _) in enumerate(data[1]):
-    #     sanity_plot(Xi.numpy(), "batch {}".format(n))
-    #     if n == 3:
-    #         break
+    info = idx_train, idx_test, mu, sg
 
-    fig, ax = plt.subplots(ncols = 2)
-    ax[0].hist(sizes[0], label = "batch sizes train")
-    ax[1].hist(sizes[1], label = "batch sizes test")
-    for a in ax:
-        a.legend(loc = "upper left")
-    plt.savefig("plots/variable_batch_{}.pdf".format(max_batch_size))
-    plt.show()
-    return data, lengths
+    return data, lengths, info
 
 
 if __name__ == "__main__":
-    EARLY_STOPPING = 3
-    EPOCHS = 1000
-    N_FEATURES = 2
-    MAX_BATCH_SIZE = 32
-    BATCH_SIZE = [4, 12, 32, 64]
-    TRAIN_TEST_SIZE = 0.8
-    N_TIMESTEPS = None
-    CONTINUE_DIR = None
-    LATENT_DIM = 32
-    ACTIVATION = "elu"
-    MERGE = "mul"
+    MODELF = lib.models.lstm_vae
 
-    MODELF = lib.models.lstm_autoencoder
     INPUT_NPZ = (
-        # "results/intensities/tracks-CLTA-TagRFP EGFP-Gak-A8_var.npz",
-        # "results/intensities/tracks-CLTA-TagRFP_EGFP-Aux1-A7D2_var.npz",
-        # "results/intensities/tracks-CLTA-TagRFP_EGFP-Aux1-A7D2_EGFP-Gak-F6_var.npz",  # smallest
-        "results/intensities/tracks-cme_var.npz",
+        "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.npz",
+        "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.npz",
+        "results/intensities/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.npz"
     )
 
-    # _ZDIM = (2, 3)
-    # _EPS = (0.1, 0.5, 1)
+    N_TIMESTEPS = None
+    EARLY_STOPPING = 3
+    EPOCHS = 100
+    TRAIN_TEST_SIZE = 0.8
+    BATCH_SIZE = (4,)
+    CONTINUE_DIR = None
 
-    # Pre-define loss so it gets compiled in the graph
-    kl_loss = K.variable(0.0)
+    LATENT_DIM = (64,)
+    ACTIVATION = None,
+    ZDIM = (16,)
+    EPS = (0.1,)
 
-    iters = itertools.product(INPUT_NPZ, BATCH_SIZE)
-    for (_input_npz, _batch_size) in iters:
-        build_args = [N_TIMESTEPS, N_FEATURES, LATENT_DIM]
+    SINGLE_FEATURE = (None,)
+    ANNEAL_TIME = (20,)
 
-        TAG = "_{}".format(MODELF.__name__)
-        TAG += "_dim={}".format(LATENT_DIM)
-        TAG += "_activ={}".format(ACTIVATION)
-        # TAG += "_eps={}_zdim={}".format(_eps, _zdim)
-        TAG += "_merge={}".format(MERGE)
-        TAG += "_batch={}"
-        TAG += "_data={}".format(_input_npz.split("/")[-1])
+    # Add iterables here
+    for (
+        _input_npz,
+        _batch_size,
+        _latent_dim,
+        _activation,
+        _eps,
+        _zdim,
+        _anneal_time,
+        _single_feature,
+    ) in itertools.product(
+        INPUT_NPZ,
+        BATCH_SIZE,
+        LATENT_DIM,
+        ACTIVATION,
+        EPS,
+        ZDIM,
+        ANNEAL_TIME,
+        SINGLE_FEATURE,
+    ):
 
         X_raw = _get_data(_input_npz)
 
-        (X_train, X_test), (X_train_steps, X_test_steps) = _preprocess(
-            X = X_raw,
-            path = _input_npz,
-            max_batch_size = _batch_size,
-            train_size = TRAIN_TEST_SIZE,
+        if _single_feature is not None:
+            X_raw = np.array([x[:, _single_feature].reshape(-1, 1) for x in X_raw])
+
+        N_FEATURES = X_raw[0].shape[-1]
+
+        # Pre-define loss so it gets compiled in the graph
+        KL_LOSS = tf.Variable(0.0)
+
+        build_args = [
+            N_TIMESTEPS,
+            N_FEATURES,
+            _latent_dim,
+            KL_LOSS,
+            _eps,
+            _zdim,
+            _activation,
+        ]
+
+        TAG = "_{}".format(MODELF.__name__)
+        TAG += "_data={}".format(_input_npz.split("/")[-1])  # input data
+        TAG += "_dim={}".format(_latent_dim)  # LSTM latent dimension
+        TAG += "_act={}".format(_activation)  # activation function
+        TAG += "_bat={}".format(_batch_size)  # batch size
+        TAG += "_eps={}_zdim={}_anneal={}".format(_eps, _zdim, _anneal_time)  # vae parameters
+        if _single_feature is not None:
+            TAG += "_single={}".format(_single_feature) # Keep only one of the features
+
+        data, lengths, info = _preprocess(
+            X=X_raw, n_features = N_FEATURES, max_batch_size=_batch_size, train_size=TRAIN_TEST_SIZE,
+        )
+        (X_train, X_test), (X_train_steps, X_test_steps) = data, lengths
+
+        model, callbacks, initial_epoch, model_dir = lib.models.model_builder(
+            model_dir=CONTINUE_DIR,
+            chkpt_tag=TAG,
+            weights_only=False,
+            patience=EARLY_STOPPING,
+            model_build_f=MODELF,
+            build_args=build_args,
         )
 
-        K.set_value(kl_loss, 0.0)
-
-        model, callbacks, initial_epoch = lib.models.model_builder(
-            model_dir = CONTINUE_DIR,
-            chkpt_tag = TAG,
-            patience = EARLY_STOPPING,
-            model_build_f = MODELF,
-            build_args = build_args,
-        )
-
-        # avc = AnnealingVariableCallback(
-        #     var=kl_loss, anneal_over_n_epochs=20, anneals_starts_at=30)
-        # callbacks.append(avc)
+        if MODELF.__name__.split("_")[-1] == "vae":
+            # reset loss on every new run so the graph if tf forgets
+            KL_LOSS.assign(value=0.0)
+            callbacks.append(
+                AnnealingVariableCallback(
+                    var=KL_LOSS, anneal_over_n_epochs=_anneal_time, anneals_starts_at=2
+                )
+            )
 
         model.summary()
         model.fit(
-            x = X_train.repeat(),
-            validation_data = X_test.repeat(),
-            epochs = EPOCHS,
-            steps_per_epoch = X_train_steps,
-            validation_steps = X_test_steps,
-            initial_epoch = initial_epoch,
-            callbacks = callbacks,
+            x=X_train.repeat(),
+            validation_data=X_test.repeat(),
+            epochs=EPOCHS,
+            steps_per_epoch=X_train_steps,
+            validation_steps=X_test_steps,
+            initial_epoch=initial_epoch,
+            callbacks=callbacks,
         )
+
+        # Save indices and normalization values to the newly created model directory
+        np.savez(os.path.join(model_dir, "info.npz"), info=info)

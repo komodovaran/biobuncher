@@ -1,34 +1,40 @@
 import numpy as np
 import sklearn.utils
-from tensorflow_core.python.keras import backend as K
-from tensorflow_core.python.keras.callbacks import Callback
-from tensorflow_core.python.keras.engine import Layer
-from tensorflow_core.python.keras.layers import Lambda, MaxPooling1D, Conv1D, BatchNormalization, Activation, Add
-
+import tensorflow as tf
+from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.callbacks import Callback
+from tensorflow.python.keras.layers import Activation, Add, BatchNormalization, Conv1D, Lambda, Layer, MaxPooling1D
+import lib.utils
 
 class KLDivergenceLayer(Layer):
-
-    """ Identity transform layer that adds KL divergence
-    to the final model loss.
     """
-
+    Takes the mu and sigma, and the KL loss variable (compiled in graph) and
+    calculates the loss, adds it to the model, then returns the variables.
+    Keep all values in the __call__, otherwise the layer will break because
+    it lacks other components required
+    """
     def __init__(self, *args, **kwargs):
         self.is_placeholder = True
         super(KLDivergenceLayer, self).__init__(*args, **kwargs)
 
     def call(self, inputs):
-        mu, log_var = inputs
+        mu, log_var, kl_weight = inputs
+
+        # kl loss for batch
         kl_batch = -0.5 * K.sum(
             1 + log_var - K.square(mu) - K.exp(log_var), axis=-1
         )
-        self.add_loss(K.mean(kl_batch), inputs=inputs)
 
-        return inputs
+        # Add the mean loss for the batch
+        self.add_loss(kl_weight * K.mean(kl_batch), inputs=inputs)
+
+        # Return the inputs
+        return mu, log_var
 
 
 class SingleBatchGenerator:
     """
-    Callable generator to yield single tensor arrays
+    Callable generator to yield single samples as tensors
     """
 
     def __init__(self, X):
@@ -40,76 +46,97 @@ class SingleBatchGenerator:
             yield xi, xi
 
 
-class VariableBatchGenerator:
+class VariableTimeseriesBatchGenerator:
     """
-    Callable generator to yield single tensor arrays
+    Callable generator to yield batches of same-length timeseries. Provide
+    indices to keep track of where each sample ends up.
     """
 
-    def __init__(self, X, max_batch_size, shuffle):
-        self.batch_by_length(X, max_batch_size, shuffle)
+    def __init__(
+        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices=None
+    ):
+        if indices is None:
+            indices = np.arange(0, len(X), 1)
+        self.batch_by_length(
+            X, max_batch_size, shuffle_samples, shuffle_batches, indices
+        )
 
     @staticmethod
-    def chunks(l, n):
+    def chunk(l, n):
         """
         Breaks a list into chunk size of at most n
         """
         for i in range(0, len(l), n):
             yield l[i : i + n]
 
-    def batch_by_length(self, X, max_batch_size, shuffle):
+    def batch_by_length(
+        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices
+    ):
         """
         Batches a list of variable-length samples into equal-sized tensors
         to speed up training
         """
-        # First, shuffle all samples
-        if shuffle:
-            X = sklearn.utils.shuffle(X)
+        # Shuffle samples before batching
+        if shuffle_samples:
+            X, indices = sklearn.utils.shuffle(X, indices)
 
         lengths = [len(xi) for xi in X]
         length_brackets = np.unique(lengths)
 
         # initialize empty batches for each length
         length_batches = [[] for _ in range(len(length_brackets))]
-        if not len(length_batches) == len(length_brackets):
+        idx_batches = [[] for _ in range(len(length_brackets))]
+        if len(length_batches) != len(length_brackets):
             raise ValueError
 
         # Go through each sample and find out where it belongs
-        for xi in X:
+        for i in range(len(X)):
+            xi = X[i]
+            idx = indices[i]
+
             # Find out which length bracket it belongs to
-            (idx,) = np.where(len(xi) == length_brackets)
-            idx = idx[0]
+            (belongs_to,) = np.where(len(xi) == length_brackets)[0]
 
             # Place sample there
-            length_batches[idx].append(xi)
+            length_batches[belongs_to].append(xi)
+            idx_batches[belongs_to].append(idx)
 
         # Break into smaller chunks so that a batch is at most max_batch_size
         dataset = []
-        for b in length_batches:
-            sub_divided = list(
-                self.chunks(b, max_batch_size)
-            )  # multiple batches
-            for s in sub_divided:
-                dataset.append(s)
+        index = []
+        for j in range(len(length_batches)):
+            sub_batch = list(self.chunk(length_batches[j], max_batch_size))
+            sub_idx = list(self.chunk(idx_batches[j], max_batch_size))
+
+            for k in range(len(sub_batch)):
+                dataset.append(sub_batch[k])
+                index.append(sub_idx[k])
 
         # Now transform each batch to a tensor
         dataset = [np.array(batch) for batch in dataset]
+        index_set = [np.array(index_batch) for index_batch in index]
 
-        # Shuffle batches
-        if shuffle:
-            dataset = sklearn.utils.shuffle(dataset)
+        # Shuffle batches of different lengths (not individual samples)
+        if shuffle_batches:
+            dataset, index_set = sklearn.utils.shuffle(dataset, index_set)
 
         for b in dataset:
             if len(b) > max_batch_size:
                 raise ValueError
 
         # Set steps per epoch for dataset to get the right number of steps
-        self.X = dataset
+        self.batches = dataset
+        self.indices = np.array(lib.utils.flatten_list(index_set))
         self.steps_per_epoch = len(dataset)
         self.batch_sizes = [len(batch) for batch in dataset]
 
     def __call__(self):
-        for i in range(len(self.X)):
-            xi = self.X[i]
+        """
+        Returns a single batch of samples per call, as (input, output) tuple,
+        for sample reconstruction by autoencoder
+        """
+        for i in range(len(self.batches)):
+            xi = self.batches[i]
             yield xi, xi
 
 
@@ -154,7 +181,7 @@ class ResidualConv1D:
     def build(self, x):
         res = x
         if self.pool:
-            x = MaxPooling1D(1, padding="same")(x)
+            x = MaxPooling1D(1, padding= "same")(x)
             res = Conv1D(kernel_size=1, **self.p)(res)
 
         out = Conv1D(kernel_size=1, **self.p)(x)
@@ -179,7 +206,6 @@ class AnnealingVariableCallback(Callback):
     """
     Slowly increases a variable from 0 to 1 over a given amount of epochs
     """
-
     def __init__(self, var, anneals_starts_at, anneal_over_n_epochs):
         super(AnnealingVariableCallback, self).__init__()
         self.var = var
@@ -219,3 +245,56 @@ def nll(y_true, y_pred):
     # keras.losses.binary_crossentropy gives the mean
     # over the last axis. we require the sum
     return K.sum(K.binary_crossentropy(y_true, y_pred), axis=-1)
+
+
+
+class KSparse(Layer):
+    '''k-sparse Keras layer.
+
+    # Arguments
+        sparsity_levels: np.ndarray, sparsity levels per epoch calculated by `calculate_sparsity_levels`
+    '''
+
+    def __init__(self, sparsity_levels, **kwargs):
+        self.sparsity_levels = tf.constant(sparsity_levels, dtype = tf.int32)
+        self.k = tf.Variable(initial_value = self.sparsity_levels[0])
+        self.uses_learning_phase = True
+        super().__init__(**kwargs)
+
+    def call(self, inputs, mask = None):
+        def sparse():
+            kth_smallest = tf.sort(inputs)[..., K.shape(inputs)[-1] - 1 - self.k]
+            return inputs * K.cast(K.greater(inputs, kth_smallest[:, None]), K.floatx())
+
+        return K.in_train_phase(sparse, inputs)
+
+    def get_config(self):
+        config = {'k': self.k}
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+
+class UpdateSparsityLevel(Callback):
+    """
+    Update sparsity level at the beginning of each epoch.
+    """
+    def on_epoch_begin(self, epoch, logs = {}):
+        l = self.model.get_layer('KSparse')
+        K.set_value(l.k, l.sparsity_levels[epoch])
+
+
+def calculate_sparsity_levels(initial_sparsity, final_sparsity, n_epochs):
+    """
+    Calculate sparsity levels per epoch. Initial sparsity should be slightly
+    lower than embedding size
+
+    # Arguments
+        initial_sparsity: int
+        final_sparsity: int
+        n_epochs: int
+    """
+    return np.hstack((np.linspace(initial_sparsity, final_sparsity, n_epochs // 2, dtype = np.int),
+                      np.repeat(final_sparsity, (n_epochs // 2) + 1)))[:n_epochs]

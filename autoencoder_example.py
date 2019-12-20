@@ -153,7 +153,7 @@ if __name__ == "__main__":
     X_test, X_pred, latents = _get_predictions(X_test, model = model)
     X_pred = X_pred.reshape(-1, N_TIMESTEPS, N_FEATURES)
 
-    jp.joyplot(pd.DataFrame(latents), xlabels = True, ylabels = False, fade = True)
+    joyfig = jp.joyplot(pd.DataFrame(latents), xlabels = True, ylabels = False, fade = True)
 
     st.write("Test data shape: ", X_test.shape)
 
