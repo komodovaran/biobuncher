@@ -297,7 +297,7 @@ def residual_conv_autoencoder(n_timesteps, n_features, latent_dim):
     return autoencoder
 
 
-def lstm_vae(
+def lstm_vae_bidir(
     n_timesteps,
     n_features,
     intermediate_dim,
@@ -360,7 +360,7 @@ def lstm_vae(
     return vae
 
 
-def lstm_vae_unidirectional(
+def lstm_vae_unidir(
     n_timesteps,
     n_features,
     intermediate_dim,
@@ -499,7 +499,7 @@ def model_builder(
         save_weights_only = weights_only
     )
 
-    os.system("chmod -R 777 models/{}".format(model_dir))
+    os.system("chmod -R 777 {}".format(model_dir))
 
     callbacks = [mca, tb, es, rl]
     return model, callbacks, initial_epoch, model_dir

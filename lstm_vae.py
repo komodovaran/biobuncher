@@ -5,7 +5,7 @@ import numpy as np
 import sklearn.model_selection
 from tensorflow.keras.models import Model
 
-from lib.models import lstm_vae
+from lib.models import lstm_vae_bidir
 from lib.tfcustom import AnnealingVariableCallback
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         length=200, n_each_class=500
     )
 
-    vae = lstm_vae(
+    vae = lstm_vae_bidir(
         n_timesteps=x_train.shape[1],
         n_features=x_train.shape[2],
         intermediate_dim=64,

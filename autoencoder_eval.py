@@ -19,8 +19,9 @@ from matplotlib.colors import BoundaryNorm
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
+import parmap
 from umap import UMAP
-
+import time
 import lib.math
 import lib.models
 import lib.plotting
@@ -66,7 +67,7 @@ def _setup_streamlit_widgets(
     )
 
     StWidgets.n_components = st.sidebar.slider(
-        value=n_components_max,
+        value=2,
         min_value=2,
         max_value=n_components_max,
         label="Components for PCA embedding",
@@ -146,16 +147,17 @@ def _get_train_test_info(path: str) -> Tuple[np.array, np.array, float, float]:
     return idx_train, idx_test, mu, sg
 
 
-def _find_and_prepare(X: np.array, idx_train, idx_test, mu, sigma):
+@st.cache
+def _standardize_train_test(X, mu, sigma, idx_train=None, idx_test=None):
     """
     Uses the indices to find the right train/test samples, and normalizes them.
     """
-    X_train, X_test = X[idx_train], X[idx_test]
-
-    X_train, X_test = [
-        lib.math.standardize(X, mu, sigma) for X in (X_train, X_test)
-    ]
-    return X_train, X_test
+    if idx_train is None or idx_test is None:
+        X_train, X_test = X[idx_train], X[idx_test]
+        X = [lib.math.standardize(X, mu, sigma) for X in (X_train, X_test)]
+    else:
+        X = lib.math.standardize(X, mu, sigma)
+    return X
 
 
 def _get_latest_model(MODEL_DIR, recency=1):
@@ -178,11 +180,6 @@ def _get_predictions(
     interactivity, as predictions use the GPU (which may not be available while
     training). Warning: order is not preserved due to batching!
     """
-    savename = (
-        os.path.split(model_path[:-4] + "_" + savename + "_predictions")[-1]
-        + ".npz"
-    )
-
     # See if there's a cached version
     try:
         f = np.load(
@@ -200,19 +197,9 @@ def _get_predictions(
         print("No predictions found. Re-predicting.")
         latest_model_path = _get_latest_model(model_path)
 
-        if "ksparse" in model_path.split("_"):
-            # it's not possible to serialize some of the components, so this
-            # model can only be saved as weights. Need to recompile the model
-            # with the trained weights and args
-            args = np.load(
-                os.path.join(model_path, "args.npz"), allow_pickle=True
-            )["args"]
-            autoencoder = lib.models.lstm_autoencoder_ksparse(*args)
-            autoencoder.compile(loss="mse", optimizer="adam")
-        else:
-            autoencoder = keras.models.load_model(
-                latest_model_path, custom_objects={"gelu": gelu}
-            )
+        autoencoder = keras.models.load_model(
+            latest_model_path, custom_objects={"gelu": gelu}
+        )
 
         encoder = _get_encoding_layer(autoencoder)
 
@@ -295,6 +282,7 @@ def _get_predictions(
             mse=mse,
             indices=indices,
         )
+        print("File saved as {}".format(savename))
 
     if not st._is_running_with_streamlit:
         print(
@@ -305,11 +293,11 @@ def _get_predictions(
 
 
 @st.cache
-def _bic(features):
+def _bic(features, max_clusters = 20, spacing = 2):
     """
     Calculates AIC/BIC for different numbers of clusters.
     """
-    rng = np.arange(1, 10, 2)
+    rng = np.arange(1, max_clusters, spacing)
     bics, aics = [], []
     for i in rng:
         clf = sklearn.mixture.GaussianMixture(
@@ -362,14 +350,16 @@ def _cluster(features, n_clusters):
     return labels, top_prop
 
 
+@lib.utils.timeit
 def _calculate_resampled_mean_std(traces, length, normalize_to_one):
     """
     Resamples all input traces to a given length and calculates mean/std.
     """
     # Resample first
-    traces_re = np.squeeze(
-        [lib.math.resample_timeseries(t, new_length=length) for t in traces]
+    traces_re = parmap.map(
+        lib.math.resample_timeseries, traces, length, pm_processes=16
     )
+
     # Normalize to 1
     if normalize_to_one:
         traces_re = [t / t.max(axis=0) for t in traces_re]
@@ -436,7 +426,7 @@ def _plot_embedding(embedding, cluster_labels):
     mids = []
     for i in range(len(set(cluster_labels))):
         emb_i = embedding[cluster_labels == i]
-        mids.append(np.mean(emb_i, axis = 0))
+        mids.append(np.mean(emb_i, axis=0))
 
     cmap = plt.get_cmap("magma", lmax - lmin + 1)
     c1 = ax.scatter(
@@ -452,7 +442,11 @@ def _plot_embedding(embedding, cluster_labels):
     fig.colorbar(c1, ax=ax, ticks=np.arange(lmin, lmax + 1))
 
     for i, m in enumerate(mids):
-        ax.annotate(xy = m[[0, 1]], s = i, bbox = dict(boxstyle = "square", fc = "w", ec = "grey", alpha = 0.9))
+        ax.annotate(
+            xy=m[[0, 1]],
+            s=i,
+            bbox=dict(boxstyle="square", fc="w", ec="grey", alpha=0.9),
+        )
 
     plt.tight_layout()
     st.write(fig)
@@ -473,7 +467,7 @@ def _plot_adjustables(
     ax[0].hist(
         original_mse,
         color="lightgrey",
-        bins=np.arange(0, max(mse), 0.01),
+        bins=np.arange(0, max(original_mse), 0.01),
         edgecolor="darkgrey",
         density=True,
     )
@@ -594,7 +588,9 @@ def _find_peaks(X, n_frames=3, n_std=2):
     return has_peak, has_no_peak
 
 
-def _plot_mean_trace(X, cluster_labels, cluster_lengths, n_rows_cols, colors):
+def _plot_mean_trace(
+    X, cluster_labels, cluster_lengths, percentages, n_rows_cols, colors
+):
     """
     Plots mean and std of resampled traces for each cluster.
     """
@@ -623,7 +619,7 @@ def _plot_mean_trace(X, cluster_labels, cluster_lengths, n_rows_cols, colors):
                 )
                 ax_.set_yticks(())
                 ax.set_yticks(())
-            ax.set_title("Cluster {}".format(i))
+            ax.set_title("{} ({:.1f} %)".format(i, percentages[i]))
         except IndexError:
             fig.delaxes(ax)
     plt.tight_layout()
@@ -639,7 +635,7 @@ def _plot_length_dist(cluster_lengths, n_rows_cols, colors):
     bins = np.arange(0, 200, 10)
     for i, ax in enumerate(axes):
         try:
-            ax.set_title("Cluster {}".format(i))
+            ax.set_title("{}".format(i))
             sns.distplot(
                 cluster_lengths[i], bins=bins, kde=True, color=colors[i], ax=ax,
             )
@@ -675,79 +671,109 @@ def _plot_max_intensity(X, cluster_labels, n_rows_cols, colors, mu, sg):
             )
             ax.set_yticks(())
             ax.set_xlabel("Intensity")
-            ax.set_title("Cluster {}".format(i))
+            ax.set_title("{}".format(i))
         except IndexError:
             fig.delaxes(ax)
     plt.tight_layout()
     svg_write(fig)
 
 
-if __name__ == "__main__":
-    models = sorted(glob("models/*"))
-    model_dir = st.selectbox(
-        options=models,
-        index=len(models) - 1,
+def main():
+    model_dir = sorted(glob("models/*"))
+    dataset_dir = sorted(glob("results/intensities/*.npz"))
+
+    model = st.selectbox(
+        options=model_dir,
+        index=len(model_dir) - 1,
         label="Select model",
         format_func=os.path.basename,
     )
 
     INTENSITIES = "results/intensities"
-    dataset_npz = re.search("data=.*.npz", model_dir)[0].split("=")[1]
+    default_dataset = re.search("data=.*.npz", model)[0].split("=")[1]
 
-    st.write("**Model**:", os.path.basename(model_dir))
-    st.write("**Dataset**:", dataset_npz)
+    default_dataset_idx = None
+    for i, d in enumerate(dataset_dir):
+        if os.path.basename(d) == default_dataset:
+            default_dataset_idx = i
+    if default_dataset is None:
+        raise ValueError("Could not match dataset with any in directory")
 
-    # fitted traces for autoencoder predictions
-    idx_train, idx_test, mu, sg = _get_train_test_info(model_dir)
-    X = _get_npz(os.path.join(INTENSITIES, dataset_npz))
-
-    X_train, X_test = _find_and_prepare(
-        X=X, idx_train=idx_train, idx_test=idx_test, mu=mu, sigma=sg
+    model_name = os.path.basename(model)
+    selected_dataset = st.selectbox(
+        label="Select dataset to predict on",
+        options=dataset_dir,
+        index=default_dataset_idx,
+        format_func=os.path.basename,
     )
+
+    st.write("**Model**:", model_name)
+    st.write("**Dataset**:", selected_dataset)
 
     # Predict only on the test set (not really using the training set for
     # anything downstream at the moment
-    single_feature = re.search("single=.*", model_dir)
+    single_feature = re.search("single=.*", model)
     if single_feature is not None:
         print("Using only single channel")
         single_feature = int(single_feature[0][-1])
 
-    use_data = st.sidebar.radio(
-        label="Dataset to use for predictions",
-        options=["test", "train", "combine"],
-        index=0,
-    )
+    # Always load mu and sg obtained from train set
+    idx_train, idx_test, mu_train, sg_train = _get_train_test_info(model)
 
-    if use_data == "test":
-        X_true = X_test
-        idx_true = idx_test
-    elif use_data == "train":
-        X_true = X_train
-        idx_true = idx_test
-    elif use_data == "combine":
-        X_true = np.concatenate((X_train, X_test))
-        idx_true = np.concatenate((idx_train, idx_test))
+    if selected_dataset == default_dataset:
+        use_data = st.sidebar.radio(
+            label="Dataset to use for predictions",
+            options=["test", "train", "combine"],
+            index=0,
+        )
+
+        # fitted traces for autoencoder predictions
+        X = _get_npz(os.path.join(INTENSITIES, selected_dataset))
+
+        X_train, X_test = _standardize_train_test(
+            X=X,
+            idx_train=idx_train,
+            idx_test=idx_test,
+            mu=mu_train,
+            sigma=sg_train,
+        )
+
+        if use_data == "test":
+            X_true = X_test
+            idx_true = idx_test
+        elif use_data == "train":
+            X_true = X_train
+            idx_true = idx_test
+        elif use_data == "combine":
+            X_true = np.concatenate((X_train, X_test))
+            idx_true = np.concatenate((idx_train, idx_test))
+        else:
+            raise ValueError("Invalid data selection")
     else:
-        raise ValueError("Invalid data selection")
+        st.subheader("**External dataset chosen**")
+        # Take a completely different dataset
+        X_true = np.load(selected_dataset, allow_pickle=True)["data"]
+        X_true = lib.math.standardize(X_true, mu=mu_train, sigma=sg_train)
+        idx_true = np.array(range(len(X_true)))
 
     len_X_true_prefilter = len(X_true)
 
     X_true, X_pred, features, mse, sample_indices = _get_predictions(
         X_true=X_true,
         idx_true=idx_true,
-        model_path=model_dir,
+        model_path=model,
         single_feature=single_feature,
-        savename=use_data,
+        savename=model_name + "___pred_" + os.path.basename(selected_dataset),
     )
     mse_orig = mse.copy()
-    sample_indices_orig = sample_indices.copy()
+    # sample_indices_orig = sample_indices.copy()
 
     StWidgets = _setup_streamlit_widgets(
         n_components_max=features.shape[-1], original_mse=mse_orig
     )
 
     # Keep only datapoints with len above a minimum length
-    arr_lens = np.array([len(xi) for xi in (X_true)])
+    arr_lens = np.array([len(xi) for xi in X_true])
     (len_above_idx,) = np.where(arr_lens >= StWidgets.min_length)
     X_true, X_pred, features, mse, sample_indices = get_index(
         X_true, X_pred, features, mse, sample_indices, index=len_above_idx
@@ -835,16 +861,19 @@ if __name__ == "__main__":
 
     st.subheader("PCA of final selection of traces")
     _plot_embedding(embedding=pca, cluster_labels=cluster_labels)
-    st.subheader("Most likely number of clusters")
-    bic, aic, rng = _bic(modified_features)
-    _plot_bic(bic, aic, rng)
 
-    cluster_lengths = []
+    if st.sidebar.checkbox(label="Run BIC", value=False):
+        st.subheader("Most likely number of clusters")
+        bic, aic, rng = _bic(modified_features)
+        _plot_bic(bic, aic, rng)
+
+    lengths_in_cluster = []
     percentage_of_samples = []
     for i in range(StWidgets.n_clusters):
         (idx,) = np.where(cluster_labels == i)
         percentage = (len(idx) / len_X_true_postfilter) * 100
 
+        percentage_of_samples.append(percentage)
         if percentage > 1:
             len_i = [len(xi) for xi in X_true[idx]]
 
@@ -853,9 +882,7 @@ if __name__ == "__main__":
             X_true_i = X_true[idx]
             X_pred_i = X_pred[idx]
             sample_indices_i = sample_indices[idx]
-
-            cluster_lengths.append(len_i)
-            percentage_of_samples.append(percentage)
+            lengths_in_cluster.append(len_i)
 
             st.subheader(
                 "Predictions for {} (N = {} ({:.1f} %))".format(
@@ -884,8 +911,8 @@ if __name__ == "__main__":
                 ncols=StWidgets.ncols,
                 plot_real_values=StWidgets.plot_real_values,
                 separate_y_ax=StWidgets.separate_y,
-                mu=mu,
-                sg=sg,
+                mu=mu_train,
+                sg=sg_train,
                 single_feature=single_feature,
                 colors=linemap,
             )
@@ -898,18 +925,19 @@ if __name__ == "__main__":
 
     st.subheader("Cluster length distributions")
     _plot_length_dist(
-        cluster_lengths=cluster_lengths,
+        cluster_lengths=lengths_in_cluster,
         n_rows_cols=n_rows_cols,
         colors=colormap,
     )
 
-    st.subheader("Mean (resampled) TRUE traces in each cluster")
+    st.subheader("Mean (resampled) **true** traces in each cluster")
     _plot_mean_trace(
         X=X_true,
         cluster_labels=cluster_labels,
-        cluster_lengths=cluster_lengths,
+        cluster_lengths=lengths_in_cluster,
         n_rows_cols=n_rows_cols,
         colors=linemap,
+        percentages=percentage_of_samples,
     )
 
     # st.subheader("Mean (resampled) PREDICTED traces in each cluster")
@@ -921,12 +949,16 @@ if __name__ == "__main__":
     #     colors = linemap
     # )
 
-    st.subheader("Intensity distribution per trace")
-    _plot_max_intensity(
-        X=X_true,
-        cluster_labels=cluster_labels,
-        n_rows_cols=n_rows_cols,
-        mu=mu,
-        sg=sg,
-        colors=colormap,
-    )
+    # st.subheader("Intensity distribution per trace")
+    # _plot_max_intensity(
+    #     X=X_true,
+    #     cluster_labels=cluster_labels,
+    #     n_rows_cols=n_rows_cols,
+    #     mu=mu_train,
+    #     sg=sg_train,
+    #     colors=colormap,
+    # )
+
+
+if __name__ == "__main__":
+    main()

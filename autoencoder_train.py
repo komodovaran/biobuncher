@@ -7,7 +7,7 @@ import seaborn as sns
 import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
-
+import re
 import lib.math
 import lib.models
 from lib.tfcustom import (
@@ -81,12 +81,13 @@ def _preprocess(X, n_features, max_batch_size, train_size):
 
 
 if __name__ == "__main__":
-    MODELF = lib.models.lstm_vae
+    MODELF = lib.models.lstm_vae_bidir,
 
     INPUT_NPZ = (
-        "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.npz",
-        "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.npz",
-        "results/intensities/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.npz"
+        # "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.npz",
+        # "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.npz",
+        # "results/intensities/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.npz",
+        "results/intensities/combined_filt5_var.npz",
     )
 
     N_TIMESTEPS = None
@@ -96,13 +97,13 @@ if __name__ == "__main__":
     BATCH_SIZE = (4,)
     CONTINUE_DIR = None
 
-    LATENT_DIM = (64,)
+    LATENT_DIM = (128,)
     ACTIVATION = None,
-    ZDIM = (16,)
+    ZDIM = (64,)
     EPS = (0.1,)
 
     SINGLE_FEATURE = (None,)
-    ANNEAL_TIME = (20,)
+    ANNEAL_TIME = (10,)
 
     # Add iterables here
     for (
@@ -114,6 +115,7 @@ if __name__ == "__main__":
         _zdim,
         _anneal_time,
         _single_feature,
+        _modelf,
     ) in itertools.product(
         INPUT_NPZ,
         BATCH_SIZE,
@@ -123,6 +125,7 @@ if __name__ == "__main__":
         ZDIM,
         ANNEAL_TIME,
         SINGLE_FEATURE,
+        MODELF,
     ):
 
         X_raw = _get_data(_input_npz)
@@ -145,7 +148,7 @@ if __name__ == "__main__":
             _activation,
         ]
 
-        TAG = "_{}".format(MODELF.__name__)
+        TAG = "_{}".format(_modelf.__name__)
         TAG += "_data={}".format(_input_npz.split("/")[-1])  # input data
         TAG += "_dim={}".format(_latent_dim)  # LSTM latent dimension
         TAG += "_act={}".format(_activation)  # activation function
@@ -164,12 +167,12 @@ if __name__ == "__main__":
             chkpt_tag=TAG,
             weights_only=False,
             patience=EARLY_STOPPING,
-            model_build_f=MODELF,
+            model_build_f=_modelf,
             build_args=build_args,
         )
 
-        if MODELF.__name__.split("_")[-1] == "vae":
-            # reset loss on every new run so the graph if tf forgets
+        if re.search(string = _modelf.__name__, pattern = "vae") is not None:
+            print("re-initialized KL loss")
             KL_LOSS.assign(value=0.0)
             callbacks.append(
                 AnnealingVariableCallback(
