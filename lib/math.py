@@ -182,7 +182,7 @@ def modified_z_score(x):
     return modified_z
 
 
-def standardize(X: np.array, mu: float, sigma: float):
+def standardize(X: np.ndarray, mu: float, sigma: float) -> np.ndarray:
     """
     Standardizes given samples individually to (0, 1) normal distribution.
     Works on unevenly sized arrays too.

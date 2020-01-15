@@ -10,6 +10,7 @@ import pandas as pd
 import parmap
 from tensorflow.python.keras.utils import Sequence
 import datetime
+from tqdm import tqdm
 
 def time_now():
     """
@@ -356,13 +357,27 @@ class BucketedSequence(Sequence):
         raise ValueError("out of bounds")
 
 
-def get_index(*args, index):
+def get_index(list_of_objs, index):
     """
     Returns indexed args.
+
+    Args:
+        list_of_objs (List[object])
+        index (np.ndarray)
     """
-    return [a[index] for a in args]
+    indexed = []
+    for a in list_of_objs:
+        if type(a) == pd.DataFrame or type(a) == pd.Series:
+            indexed.append(a.iloc[index])
+        else:
+            indexed.append(a[index])
+    return indexed
 
-
+def all_equal(x):
+    """
+    Checks if all elements in iterable are equal
+    """
+    return x.count(x[0]) == len(x)
 
 def count_adjacent_values(arr):
     """
@@ -391,3 +406,25 @@ def count_adjacent_values(arr):
         lengths.append(_len)
         starts.append(_idx)
     return starts, lengths
+
+
+def get_single_df_group(df, index, by):
+    """
+    Quickly find a single group by index in a grouped df.
+    """
+    grouped_df = df.groupby(by)
+    keys = list(grouped_df.groups.keys())
+    idx = keys[index]
+    single_group = grouped_df.get_group(idx)
+    return single_group
+
+
+def split_and_keep(s, sep):
+    """
+    Splits by given separator, similar to str.split(), but keeps the separator
+    appended.
+    """
+    if not s:
+        return [""]
+    p = chr(ord(max(s)) + 1)
+    return s.replace(sep, sep + p).split(p)

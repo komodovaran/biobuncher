@@ -1,37 +1,33 @@
-import pandas as pd
-import numpy as np
-import streamlit as st
-import os.path
 import matplotlib.pyplot as plt
-np.random.seed(0)
+import numpy as np
+import skimage.transform
 
-@st.cache
-def get_data():
-    path = "results/intensities/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.h5"
-    df = pd.DataFrame(pd.read_hdf(path))
+y = []
+for i in range(200):
+    trace_c0 = [1, 2, 3, 5, 6, 2, 1, 2, 3, 5]
+    trace_c0 = np.array(trace_c0, dtype = float)
+    trace_c0 *= np.random.randint(1, 20)
+    trace_c0 *= np.random.normal(1, 0.2, len(trace_c0))
 
-    # df = pd.DataFrame({"a"     : np.random.normal(0, 100, 1000000),
-    #                    "index1": np.random.randint(0, 200, 1000000),
-    #                    "index2": np.random.randint(0, 200, 1000000)})
-    return df
+    trace_c1 = np.flip(trace_c0) * 3
 
-@st.cache
-def get_group(df, n):
-    grouped_df = df.groupby(["file", "particle"])
-    keys = list(grouped_df.groups.keys())
-    group = grouped_df.get_group(keys[n])
-    return group
+    newtrace = np.row_stack((trace_c0, trace_c1))
+    y.append(newtrace)
 
-n = st.number_input(min_value = 0, max_value = 100, label = "ID of group to fetch")
+y = np.dstack(y)
+y = np.swapaxes(y, 0, 2)
 
-df = get_data()
-group = get_group(df, n = n)
+# plt.plot(traces[0])
+y = np.array([t / t.max(axis = (0, 1)) for t in y])
 
-pos = st.number_input(min_value = 0, max_value = len(group), label = "Multiply fetched group or something")
+y = y[..., 0]
 
-fig, ax = plt.subplots()
-ax.plot(range(len(group)), group["int_c0"])
-ax.axvline(pos)
-st.write(fig)
+x = np.tile(np.arange(0, 10, 1), y.shape[0]).reshape(y.shape)
+bins = 20
 
-st.write(group)
+heatmap, xlabels, ylabels = np.histogram2d(y.ravel(), x.ravel(), bins=bins)
+plt.plot(y[0])
+plt.show()
+
+plt.imshow(heatmap)
+plt.show()

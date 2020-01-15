@@ -63,7 +63,7 @@ def lstm_autoencoder_ksparse(
     return autoencoder
 
 
-def lstm_autoencoder(n_timesteps, n_features, latent_dim, activation="elu"):
+def lstm_autoencoder(n_timesteps, n_features, latent_dim, activation="elu", softmax_encoding = False):
     """
     LSTM autoencoder with bidirectionality
     """
@@ -71,10 +71,18 @@ def lstm_autoencoder(n_timesteps, n_features, latent_dim, activation="elu"):
         activation = gelu
 
     i = Input(shape=(n_timesteps, n_features))
-    x = Bidirectional(CuDNNLSTM(latent_dim), name="encoded", merge_mode="mul")(
-        i
-    )
-    x = Activation(activation)(x)
+
+    if softmax_encoding:
+        x = Bidirectional(CuDNNLSTM(latent_dim), merge_mode="mul")(
+            i
+        )
+        x = Activation("softmax", name = "encoded")(x)
+    else:
+        x = Bidirectional(CuDNNLSTM(latent_dim), name = "encoded", merge_mode = "mul")(
+            i
+        )
+        x = Activation("softmax", name = activation)(x)
+
     x = VariableRepeatVector()([i, x])
     x = Bidirectional(
         CuDNNLSTM(latent_dim, return_sequences=True), merge_mode="mul"
@@ -347,6 +355,78 @@ def lstm_vae_bidir(
     xd = VariableRepeatVector()([inputs, z])
     xd = Bidirectional(
         CuDNNLSTM(intermediate_dim, return_sequences=True, name="decoded")
+    )(xd)
+
+    xd = Activation(activation)(xd)
+    # Make sure the final activation is linear and correct dimensionality
+    outputs = TimeDistributed(Dense(n_features, activation=None))(xd)
+
+    # Start with 0 weight for the KL loss, and slowly increase with callback
+    vae = Model(inputs, outputs)
+    vae.compile(optimizer="adam", loss="mse")
+    vae.summary()
+    return vae
+
+
+def lstm_vae_bidir_stacked(
+    n_timesteps,
+    n_features,
+    intermediate_dim,
+    kl_weight,
+    eps=1,
+    z_dim=2,
+    activation=None,
+):
+    """
+    Variational autoencoder for variable length time series. Cannot sample over
+    the input space, because of variable-length time series compatibility
+    """
+
+    def _sample(args):
+        """
+        The sampling function to draw a latent vector from a normal distribution
+        in z with a mu and a sigma
+        """
+        z_mean, z_log_var = args
+        epsilon = K.random_normal(
+            shape=(K.shape(z_mean)[0], z_dim), mean=0.0, stddev=eps
+        )
+        return z_mean + K.exp(z_log_var / 2) * epsilon
+
+    if activation == "gelu":
+        activation = gelu
+
+    inputs = Input(shape=(n_timesteps, n_features))
+    # encode -> (latent_dim, )
+    xe = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=True))(
+        inputs
+    )
+
+    xe = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences = False))(
+        xe
+    )
+
+    xe = Dense(intermediate_dim)(xe)
+
+    xe = Activation(activation)(xe)
+
+    # Create a n-dimensional distribution to sample from
+    z_mu = Dense(z_dim, name="z_mu")(xe)
+    z_log_var = Dense(z_dim, name="z_var")(xe)
+
+    # Add a layer that calculates the KL loss and returns the values
+    z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
+
+    # sample vector from the latent distribution
+    z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
+
+    # Repeat so it fits into LSTM
+    xd = VariableRepeatVector()([inputs, z])
+    xd = Bidirectional(
+        CuDNNLSTM(intermediate_dim, return_sequences=True)
+    )(xd)
+    xd = Bidirectional(
+        CuDNNLSTM(intermediate_dim, return_sequences = True, name = "decoded")
     )(xd)
 
     xd = Activation(activation)(xd)

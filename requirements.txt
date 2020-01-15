@@ -1,3 +1,6 @@
+umap
+hdbscan
+tiffile
 absl-py==0.8.1
 altair==3.2.0
 argh==0.26.2

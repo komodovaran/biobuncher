@@ -1,10 +1,13 @@
 import base64
 from io import StringIO
 
+import matplotlib.cm
 import matplotlib.lines
+import numpy as np
 import streamlit as st
 from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize
+from matplotlib.colors import ListedColormap
 
 import lib.math
 import lib.utils
@@ -173,3 +176,41 @@ def mark_trues(arr, ax, color, alpha):
             alpha = alpha,
             facecolor = color,
         )
+
+def plot_timeseries_percentile(timeseries, ax, n_percentiles = 10, min_percentile = 0, max_percentile = 100, color = "red"):
+    """
+    Plots varying percentiles of timeseries, as a type of contouring.
+    Timeseries must be shape (samples, length)
+    """
+    if color == "red":
+        colormap = matplotlib.cm.Reds_r
+    elif color == "blue":
+        colormap = matplotlib.cm.Blues_r
+    elif color == "black":
+        colormap = matplotlib.cm.Greys_r
+    elif color == "purple":
+        colormap = matplotlib.cm.Purples_r
+    else:
+        raise NotImplementedError("Colors available: 'red', 'blue'")
+
+    cmap = colormap(np.arange(colormap.N))
+    # Set alpha
+    cmap[:, -1] = np.linspace(0, 1, colormap.N)
+    # Create new colormap
+    cmap = ListedColormap(cmap)
+
+
+    percentiles = np.linspace(min_percentile, max_percentile, n_percentiles)
+    length = timeseries.shape[1]
+
+    sdist = np.zeros((n_percentiles, length))
+    for i in range(n_percentiles):
+        for t in range(length):
+            sdist[i, t] = np.percentile(timeseries[:, t], percentiles[i])
+
+    half = int((n_percentiles - 1) / 2)
+
+    ax.plot(np.arange(0, length, 1), sdist[half, :], color = color, alpha = 0.5)
+    for i in range(half):
+        ax.fill_between(np.arange(0, length, 1), sdist[i, :], sdist[-(i + 1), :], facecolor = cmap(i / half), edgecolor = cmap(i / half))
+    return ax
