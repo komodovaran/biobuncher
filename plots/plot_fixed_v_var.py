@@ -7,7 +7,7 @@ import seaborn as sns
 import re
 import scipy.signal
 from lib.math import mean_squared_error as mse
-X_train = np.load("../results/intensities/tracks-cme_var_traintest.npz", allow_pickle = True)["X_train"]
+X_train = np.load("../data/preprocessed/tracks-cme_var_traintest.npz", allow_pickle = True)["X_train"]
 
 sns.set_style("darkgrid")
 

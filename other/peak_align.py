@@ -5,7 +5,7 @@ from msalign import msalign
 
 np.random.seed(9)
 
-X = np.load("results/intensities/tracks-cme_split-c1_res.npz")["data"]
+X = np.load("data/preprocessed/tracks-cme_split-c1_res.npz")["data"]
 
 zvals = np.row_stack(X[0:100, :, 1])
 

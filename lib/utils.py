@@ -12,6 +12,16 @@ from tensorflow.python.keras.utils import Sequence
 import datetime
 from tqdm import tqdm
 
+
+def pairwise_range(iter):
+    """
+    Allows pairwise count iteration over iterable object
+    """
+    counter = list(range(len(iter)))
+    if len(counter) % 2 != 0:
+        counter.append(None)
+    return pairwise(counter)
+
 def time_now():
     """
     Returns the current YMD-HM formatted date
@@ -98,7 +108,13 @@ def initialize_df_columns(df, new_columns):
 
 
 def pairwise(array):
-    """Unpacks elements of an array (1,2,3,4...) into pairs, i.e. (1,2), (3,4), ..."""
+    """
+    Unpacks elements of an array (1,2,3,4...) into pairs, i.e. (1,2), (3,4), ...
+
+    Skips the last element if sequence contains uneven amount of elements.
+    This can be avoided by e.g. appending None to the end of the array to fix
+    the pairing
+    """
     return zip(array[0::2], array[1::2])
 
 
@@ -243,7 +259,7 @@ def ts_to_stationary(df, groupby = None):
 def sample_max_normalize_3d(X, squeeze = True):
     """
     Sample-wise max-value normalization of 3D array (tensor).
-    This is not feature-wise normalization, to keep the ratios between extracted_features intact!
+    This is not feature-wise normalization, to keep the ratios between features intact!
     """
     if len(X.shape) == 2:
         X = X[np.newaxis, :, :]
@@ -367,8 +383,12 @@ def get_index(list_of_objs, index):
     """
     indexed = []
     for a in list_of_objs:
+        # Pandas index doesn't reset automatically the same way as arrays
+        # so need to be reset manually
         if type(a) == pd.DataFrame or type(a) == pd.Series:
-            indexed.append(a.iloc[index])
+            a_ = a.iloc[index]
+            a_.reset_index(drop = True, inplace = True)
+            indexed.append(a_)
         else:
             indexed.append(a[index])
     return indexed
@@ -407,7 +427,7 @@ def count_adjacent_values(arr):
         starts.append(_idx)
     return starts, lengths
 
-
+@timeit
 def get_single_df_group(df, index, by):
     """
     Quickly find a single group by index in a grouped df.
@@ -417,6 +437,17 @@ def get_single_df_group(df, index, by):
     idx = keys[index]
     single_group = grouped_df.get_group(idx)
     return single_group
+
+@timeit
+def get_multiple_df_groups(df, index, by):
+    """
+    Quickly find a single group by index in a grouped df.
+    """
+    grouped_df = df.groupby(by)
+    keys = list(grouped_df.groups.keys())
+    idx = keys[index]
+    groups = pd.concat([grouped_df.get_group(int(i)) for i in idx], sort = False)
+    return groups
 
 
 def split_and_keep(s, sep):
@@ -428,3 +459,7 @@ def split_and_keep(s, sep):
         return [""]
     p = chr(ord(max(s)) + 1)
     return s.replace(sep, sep + p).split(p)
+
+
+def remove_none(ls):
+    return [i for i in ls if i is not None]

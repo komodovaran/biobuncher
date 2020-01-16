@@ -90,7 +90,7 @@ def _SET_CONFIG():
 
 if __name__ == "__main__":
     TIFFPATH = "data/kangmin_data/**/**/*.tif"
-    RESULTS_PATH = "results/intensities/tracks-tpy.h5"
+    RESULTS_PATH = "data/preprocessed/tracks-tpy.h5"
     CFG = ConfigObj("config/tracks_dual.cfg")
 
     paths_egfp, paths_tagrfp = [

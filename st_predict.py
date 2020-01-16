@@ -1,11 +1,18 @@
 import os
 import re
+import warnings
 from glob import glob
 from typing import Iterable
+from numba import NumbaPerformanceWarning
+
+warnings.simplefilter(action="ignore", category=FutureWarning, append = True)
+warnings.simplefilter(action="ignore", category=RuntimeWarning, append = True)
+warnings.simplefilter(action = "ignore", category = NumbaPerformanceWarning, append = True)
 
 import hdbscan
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import parmap
 import seaborn as sns
 import sklearn.manifold
@@ -21,8 +28,6 @@ from matplotlib.ticker import MaxNLocator
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
-from umap import UMAP
-import pandas as pd
 
 import lib.math
 import lib.models
@@ -30,7 +35,8 @@ import lib.plotting
 import lib.utils
 from lib.plotting import svg_write
 from lib.tfcustom import VariableTimeseriesBatchGenerator, gelu
-from lib.utils import get_index
+from lib.utils import get_index, pairwise
+import umap.umap_ as umap
 
 sns.set_style("dark")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
@@ -47,6 +53,20 @@ def _load_npz(path):
     return np.load(path, allow_pickle=True)["data"]
 
 
+@st.cache
+def _load_df(path, index=None):
+    """
+    Loads original dataframe that matches array
+    Args:
+        path (str)
+        index (np.ndarray)
+    """
+    df = pd.DataFrame(pd.read_hdf(path, key="df"))
+    if index is not None:
+        df = df[df["id"].isin(index)]
+    return df
+
+@st.cache
 def _load_train_test_info(path):
     """
     Load indices for train/test split on the given dataset from a model dir.
@@ -57,32 +77,6 @@ def _load_train_test_info(path):
     f = np.load(os.path.join(path, "info.npz"), allow_pickle=True)
     idx_train, idx_test, mu, sg = f["info"]
     return idx_train, idx_test, mu, sg
-
-
-def _load_multi_index(data_path, fallback_indices):
-    """
-    If dataset is composed of several individual datasets
-    data1.h5, data2.h5, data3.h5...
-    that are to be compared, load the corresponding multi-index so that they
-    can be distinguished, and re-found after clustering
-
-    The index is a dataframe with 'file' and 'idx' obtained from the
-    ordering of df.groupby(["file", "particle"])
-
-    If no indices are given, the multi index will be constructed from the
-    fallback indices, so that indices are always available
-
-    Args:
-        data_path (str)
-        fallback_indices (np.array)
-    """
-    try:
-        multi_index = pd.DataFrame(pd.read_hdf(data_path[:-4] + "_idx.h5"))
-    except FileNotFoundError:
-        print("No multi-index file found")
-        multi_index = pd.DataFrame({"file": data_path, "idx": fallback_indices})
-    multi_index["cluster"] = 0
-    return multi_index
 
 
 def _find_default_data_st_selection(model_path, data_dir):
@@ -111,7 +105,7 @@ def _find_default_data_st_selection(model_path, data_dir):
     return name, idx
 
 
-@st.cache
+@st.cache(allow_output_mutation=True, suppress_st_warning=True)
 def _standardize_train_test(X, mu, sigma, idx_train=None, idx_test=None):
     """
     Uses the indices to find the right train/test samples, and normalizes them.
@@ -133,6 +127,61 @@ def _standardize_train_test(X, mu, sigma, idx_train=None, idx_test=None):
         X = [lib.math.standardize(X, mu, sigma) for X in (X_train, X_test)]
     return X
 
+
+@st.cache(allow_output_mutation=True, suppress_st_warning=True)
+def _standardize_single(X, mu, sigma):
+    """
+    Normalizes a single array
+
+    Args:
+        X (np.array)
+        mu (float)
+        sigma (float)
+
+    """
+    return lib.math.standardize(X, mu, sigma)
+
+
+@st.cache(allow_output_mutation = True, suppress_st_warning = True)
+def _prepare_data(X, model_dir, data_name, data_path, set_type):
+    """
+    Args:
+        X (np.array)
+        data_name (str)
+        data_path (str)
+        set_type (str)
+    """
+    # Always load mu and sg obtained from train set
+    idx_train, idx_test, mu_train, sg_train = _load_train_test_info(
+        model_dir
+    )
+
+    if data_name != os.path.basename(data_path):
+        st.subheader("**External dataset chosen**")
+        X_true = _standardize_single(X=X, mu=mu_train, sigma=sg_train)
+        idx_true = np.array(range(len(X_true)))
+    else:
+        # fitted traces for autoencoder predictions
+        X_train, X_test = _standardize_train_test(
+            X=X,
+            idx_train=idx_train,
+            idx_test=idx_test,
+            mu=mu_train,
+            sigma=sg_train,
+        )
+
+        if set_type in ("train", "test"):
+            if set_type == "train":
+                X_true = X_train
+                idx_true = idx_test
+            else:
+                X_true = X_test
+                idx_true = idx_test
+        else:
+            X_true = np.concatenate((X_train, X_test))
+            idx_true = np.concatenate((idx_train, idx_test))
+
+    return X_true, idx_true, mu_train, sg_train
 
 def _latest_model(model_dir, recency=1):
     """
@@ -174,7 +223,7 @@ def _get_encoding_layer(
     return encoder
 
 
-def _predict(X_true, idx_true, model_path, savename, single_feature=None):
+def _predict(X_true, idx_true, model_path, savename):
     """
     Predicts autoencoder features and saves them. Saving as npz is required for
     interactivity, as predictions use the GPU (which may not be available while
@@ -185,10 +234,9 @@ def _predict(X_true, idx_true, model_path, savename, single_feature=None):
         idx_true (np.ndarray)
         model_path (str)
         savename (str)
-        single_feature (Union[None, int])
     """
     # See if there's a cached version
-    basepath = "results/extracted_features/{}"
+    basepath = "results/encodings/{}"
 
     try:
         f = np.load(basepath.format(savename), allow_pickle=True)
@@ -210,86 +258,74 @@ def _predict(X_true, idx_true, model_path, savename, single_feature=None):
 
         encoder = _get_encoding_layer(autoencoder)
 
-        if len(X_true.shape) == 3:
-            # If trained with equal lengths normal tensor
-            # This also means that order is preserved throughout
-            X_true = X_true
-            X_pred = autoencoder.predict(X_true)
-            features = encoder.predict(X_true)
-            mse = lib.math.mean_squared_error(X_true, X_pred, axis=(1, 2))
-            indices = idx_true
-
+        # Batch as much as possible to speed up prediction
+        if len(X_true[0].shape) == 2:
+            n_features = X_true[0].shape[-1]
         else:
-            # Batch as much as possible to speed up prediction
-            if len(X_true[0].shape) == 2:
-                n_features = X_true[0].shape[-1]
-            else:
-                raise ValueError(
-                    "Trouble guessing number of features from data."
-                    "Reshape it to (-1, 1) if data is single feature"
-                )
-
-            X_ = VariableTimeseriesBatchGenerator(
-                X=X_true.tolist(),
-                indices=idx_true,
-                max_batch_size=128,
-                shuffle_samples=True,
-                shuffle_batches=True,
+            raise ValueError(
+                "Trouble guessing number of features from data."
+                "Reshape it to (-1, 1) if data is single feature"
             )
 
-            indices = X_.indices
-
-            X_ = tf.data.Dataset.from_generator(
-                generator=X_,
-                output_types=(tf.float64, tf.float64),
-                output_shapes=(
-                    (None, None, n_features),
-                    (None, None, n_features),
-                ),
-            )
-
-            # Predict on batches and unravel for single-item use
-            X_true, X_pred, features, mse = [], [], [], []
-            for xi_true, _ in tqdm(X_):
-                if single_feature is not None:
-                    # if single feature, expand last dim to (..., 1)
-                    p_xi_true = tf.expand_dims(
-                        xi_true[..., single_feature], axis=2
-                    )
-                else:
-                    p_xi_true = xi_true
-
-                xi_pred = autoencoder.predict_on_batch(p_xi_true)
-                fi = encoder.predict_on_batch(p_xi_true)
-                ei = lib.math.mean_squared_error(
-                    p_xi_true.numpy(), xi_pred.numpy(), axis=(1, 2)
-                )
-
-                # Make sure they're numpy arrays now and not EagerTensors!
-                X_true.extend(
-                    np.array(xi_true)
-                )  # Append the original one and not the one used for predictions
-                X_pred.extend(np.array(xi_pred))
-                features.extend(np.array(fi))
-                mse.extend(np.array(ei))
-
-            X_true, X_pred, features, mse = map(
-                np.array, (X_true, X_pred, features, mse)
-            )
-
-        # Shuffle data to be certain that all plots show random samples
-        X_true, X_pred, features, mse, indices = sklearn.utils.shuffle(
-            X_true, X_pred, features, mse, indices
+        X_ = VariableTimeseriesBatchGenerator(
+            X=X_true.tolist(),
+            indices=idx_true,
+            max_batch_size=512,
+            shuffle_samples=True,
+            shuffle_batches=True,
         )
-        np.savez(
-            basepath.format(savename),
-            X_true=X_true,
-            X_pred=X_pred,
-            features=features,
-            mse=mse,
-            indices=indices,
+
+        indices = X_.indices
+
+        X_ = tf.data.Dataset.from_generator(
+            generator=X_,
+            output_types=(tf.float64, tf.float64),
+            output_shapes=(
+                (None, None, n_features),
+                (None, None, n_features),
+            ),
         )
-        print("File saved as {}".format(savename))
+
+        # Predict on batches and unravel for single-item use
+        X_true, X_pred, features, mse = [], [], [], []
+        for xi_true, _ in tqdm(X_):
+            # Predict encoding
+            _xi_true = xi_true
+            _xi_true = _xi_true.numpy().copy()
+            _xi_true[..., 0] = 0
+            fi = encoder.predict_on_batch(_xi_true)
+
+            # Predict reconstruction
+            xi_pred = autoencoder.predict_on_batch(_xi_true)
+
+            # Calculate error of reconstruction
+            ei = lib.math.mean_squared_error(
+                xi_true.numpy(), xi_pred.numpy(), axis=(1, 2)
+            )
+
+            # Make sure they're numpy arrays now and not EagerTensors!
+            X_true.extend(np.array(xi_true))
+            X_pred.extend(np.array(xi_pred))
+            features.extend(np.array(fi))
+            mse.extend(np.array(ei))
+
+        X_true, X_pred, features, mse = map(
+            np.array, (X_true, X_pred, features, mse)
+        )
+
+    # Shuffle data to be certain that all plots show random samples
+    X_true, X_pred, features, mse, indices = sklearn.utils.shuffle(
+        X_true, X_pred, features, mse, indices
+    )
+    np.savez(
+        basepath.format(savename),
+        X_true=X_true,
+        X_pred=X_pred,
+        features=features,
+        mse=mse,
+        indices=indices,
+    )
+    print("File saved as {}".format(savename))
 
     if not st._is_running_with_streamlit:
         print(
@@ -315,7 +351,7 @@ def _pca(features, embed_into_n_components):
 
 
 @st.cache
-def _umap_embedding(features, embed_into_n_components=2):
+def _umap_embedding(features, embed_into_n_components=2, random_state = 0):
     """
     Calculates the UMAP embedding of raw input features for visualization.
 
@@ -323,40 +359,43 @@ def _umap_embedding(features, embed_into_n_components=2):
         features (np.ndarray)
         embed_into_n_components (int)
     """
-    umap = UMAP(
-        n_neighbors=30, min_dist=0.0, n_components=embed_into_n_components
+    spread = np.std(features, axis = (0, 1))
+
+    u = umap.UMAP(
+        n_components=embed_into_n_components,
+        random_state = random_state,
+        spread = spread,
+        n_neighbors=10,
+        min_dist=0.0,
+        init="spectral",
+        set_op_mix_ratio = 1,
+        learning_rate = 0.1,
+        n_epochs = 500,
     )
-    manifold = umap.fit_transform(features)
-    return manifold
+    return u.fit_transform(features)
 
 
 @st.cache
-def _cluster(features, savename):
+def _cluster(
+    features, min_cluster_size=30, min_core_points=0
+):
     """
-    Performs clustering on given features.
+    Cluster points using HDBSCAN.
 
     Args:
-        features (np.ndarray)
-        savename (Union[str, None])
-        pre_trained_path (str)
+        features (np.array)
+        min_cluster_size (int)
+        min_core_points (int):
     """
-    basepath = "results/cluster_classifiers/{}"
-
     clf = hdbscan.HDBSCAN(
         prediction_data=True,
         allow_single_cluster=False,
         approx_min_span_tree=True,
-        min_samples=50,
+        min_samples=min_core_points,
+        min_cluster_size=min_cluster_size,
+        core_dist_n_jobs=-1,
     )
-    clf.fit(features)
-
-    # Save fitted clusters for later, but only if they're newly fitted
-    if savename is not None:
-        np.savez(basepath.format(savename), clf=clf)
-
-    labels, _ = hdbscan.approximate_predict(
-        clusterer=clf, points_to_predict=features
-    )
+    labels = clf.fit_predict(features)
     return labels
 
 
@@ -401,7 +440,6 @@ def _random_subset(list_of_objs, n_samples):
     rand_idx = np.random.choice(idx, n_samples, replace=False)
 
     return lib.utils.get_index(list_of_objs, index=rand_idx)
-    # return [a[rand_idx] for a in arrs]
 
 
 def _save_cluster_sample_indices(cluster_sample_indices, model_name, data_name):
@@ -440,6 +478,25 @@ def _find_peaks(X, n_frames=3, n_std=2):
         else:
             has_no_peak += 1
     return has_peak, has_no_peak
+
+
+def _clath_aux_peakfinder(X):
+    """
+    Clathrin/auxilin specific block for doing a weak check for peaks.
+    Not very tweaked and only used as a weak guidance.
+
+    Args:
+        X (np.array):
+    """
+
+    has_peak, has_no_peak = _find_peaks(X)
+    st.write("{} traces with peaks".format(has_peak))
+    st.write("{} traces with no peaks".format(has_no_peak))
+    st.write(
+        "{:.1f} % of traces have peaks".format(
+            has_peak / (has_peak + has_no_peak) * 100
+        )
+    )
 
 
 def _plot_explained_variance(explained_variance):
@@ -645,80 +702,76 @@ def _plot_traces_preview(
     svg_write(fig)
 
 
+@lib.utils.timeit
+@st.cache(allow_output_mutation=True, suppress_st_warning=True)
 def _plot_mean_trace(
-    X, cluster_labels, cluster_lengths, percentages, n_rows_cols,
+    X, cluster_labels, cluster_lengths, percentages,
 ):
     """
     Plots mean and std of resampled traces for each cluster.
 
     Args:
         X (np.ndarray):
-        cluster_labels (np.ndarray):
-        cluster_lengths (List[int]):
-        percentages (List[float]):
-        n_rows_cols (int):
+        cluster_labels (np.ndarray)
+        cluster_lengths (List[int])
+        percentages (List[float])
     """
-    fig, axes = plt.subplots(nrows=n_rows_cols, ncols=n_rows_cols)
-    axes = axes.ravel()
-    for i, ax in enumerate(axes):
-        try:
-            (label_idx,) = np.where(cluster_labels == i)
-            resample_len = np.max(cluster_lengths[i])
-            traces = _resample_traces(
-                X[label_idx], length=resample_len, normalize=True,
-            )
-            clrs = ["black", "red"]
-            channels = traces.shape[-1]
-            for c in range(channels):
-                t = traces[..., c]
-                lib.plotting.plot_timeseries_percentile(
-                    t,
-                    ax=ax,
-                    color=clrs[c],
-                    min_percentile=50 - 15,
-                    max_percentile=50 + 15,
-                    n_percentiles=10,
+    for ij in lib.utils.pairwise_range(cluster_lengths):
+        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+
+        for ax, i in zip(axes, ij):
+            if i is not None:
+                (label_idx,) = np.where(cluster_labels == i)
+                resample_len = np.max(cluster_lengths[i])
+                traces = _resample_traces(
+                    X[label_idx], length=resample_len, normalize=True,
                 )
 
-            ax.set_xlim(0, resample_len)
-            ax.set_xticks(())
-            ax.set_yticks(())
-            ax.set_title("{} ({:.1f} %)".format(i, percentages[i]))
-        except IndexError:
-            fig.delaxes(ax)
-    plt.tight_layout()
-    st.pyplot(fig)
-    # svg_write(fig)
+                ax.set_xlim(0, resample_len)
+                ax.set_xticks(())
+                ax.set_yticks(())
+                ax.set_title("{} ({:.1f} %)".format(i, percentages[i]))
+
+                clrs = ["black", "red"]
+                channels = traces.shape[-1]
+                for c in range(channels):
+                    t = traces[..., c]
+                    lib.plotting.plot_timeseries_percentile(
+                        t,
+                        ax = ax,
+                        color = clrs[c],
+                        min_percentile = 50 - 15,
+                        max_percentile = 50 + 15,
+                        n_percentiles = 10)
+            else:
+                fig.delaxes(ax)
+        svg_write(fig)
 
 
-def _plot_length_dist(cluster_lengths, n_rows_cols, colors):
+def _plot_length_dist(cluster_lengths, colors):
     """
     Plots length distributions of each cluster.
 
     Args:
-        cluster_lengths (List[int]):
-        n_rows_cols (int):
-        colors (List[str]):
-
-
+        cluster_lengths (List[int])
+        colors (List[str])
     """
-    fig, axes = plt.subplots(nrows=n_rows_cols, ncols=n_rows_cols)
-    axes = axes.ravel()
     bins = np.arange(0, 200, 10)
-    for i, ax in enumerate(axes):
-        try:
-            ax.set_title("{}".format(i))
-            sns.distplot(
-                cluster_lengths[i], bins=bins, kde=True, color=colors[i], ax=ax,
-            )
-            ax.set_xlabel("Length")
-            # ax.set_ylabel("Count")
-            ax.set_xlim(20, 200)
-            ax.set_yticks(())
-        except IndexError:
-            fig.delaxes(ax)
-    plt.tight_layout()
-    svg_write(fig)
+
+    for ij in lib.utils.pairwise_range(cluster_lengths):
+        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+        for ax, i in zip(axes, ij):
+            if i is not None:
+                ax.set_title("{}".format(i))
+                sns.distplot(
+                    cluster_lengths[i], bins=bins, kde=True, color=colors[i], ax=ax,
+                )
+                ax.set_xlabel("Length")
+                ax.set_xlim(0, 200)
+                ax.set_yticks(())
+            else:
+                fig.delaxes(ax)
+        svg_write(fig)
 
 
 def _plot_max_intensity(X, cluster_labels, n_rows_cols, colors, mu, sg):
@@ -732,8 +785,6 @@ def _plot_max_intensity(X, cluster_labels, n_rows_cols, colors, mu, sg):
         colors (List[str]):
         mu (Union[float, np.ndarray]):
         sg (Union[float, np.ndarray]):
-
-
     """
     fig, axes = plt.subplots(nrows=n_rows_cols, ncols=n_rows_cols)
     axes = axes.ravel()
@@ -764,11 +815,11 @@ def main():
     """
     Main function. Use return to stop script execution.
     """
-    random_state = st.sidebar.number_input(label="Random seed", value=0)
-    np.random.seed(random_state)
+    st_random_state = st.sidebar.number_input(label="Random seed", value=0)
+    np.random.seed(st_random_state)
 
     model_dir = sorted(glob("models/*"))
-    data_dir = sorted(glob("results/intensities/*.npz"))
+    data_dir = sorted(glob("data/preprocessed/*.npz"))
 
     st_model_path = st.selectbox(
         options=model_dir,
@@ -809,76 +860,50 @@ def main():
         print("Using only single channel")
         single_feature = int(single_feature[0][-1])
 
-    # Always load mu and sg obtained from train set
-    idx_train, idx_test, mu_train, sg_train = _load_train_test_info(
-        st_model_path
-    )
-
     # Check if selected dataset is the same as used for train/test
     # to provide this option
+    st_data_type = st.sidebar.radio(
+        label = "Dataset to use for predictions",
+        options = ["all", "test", "train"],
+        index = 0,
+    )
+
     st_selected_data_name = os.path.basename(st_selected_data_path)
-    if st_selected_data_name == os.path.basename(default_data_path):
-        use_data = st.sidebar.radio(
-            label="Dataset to use for predictions",
-            options=["all", "test", "train"],
-            index=0,
-        )
 
-        # fitted traces for autoencoder predictions
-        X = _load_npz(st_selected_data_path)  # type: np.ndarray
+    X = _load_npz(st_selected_data_path)
+    X_true, idx_true, mu_train, sg_train = _prepare_data(X = X,
+                                                         data_name = st_selected_data_name,
+                                                         data_path = default_data_path,
+                                                         model_dir = st_model_path,
+                                                         set_type = st_data_type)
 
-        X_train, X_test = _standardize_train_test(
-            X=X,
-            idx_train=idx_train,
-            idx_test=idx_test,
-            mu=mu_train,
-            sigma=sg_train,
-        )
-
-        if use_data == "test":
-            X_true = X_test
-            idx_true = idx_test
-        elif use_data == "train":
-            X_true = X_train
-            idx_true = idx_test
-        elif use_data == "all":
-            X_true = np.concatenate((X_train, X_test))
-            idx_true = np.concatenate((idx_train, idx_test))
-        else:
-            raise ValueError("Invalid data selection")
-    else:
-        st.subheader("**External dataset chosen**")
-        # Take a different dataset without train/test split available
-        X_true = _load_npz(st_selected_data_path)
-        X_true = _standardize_train_test(X_true, mu=mu_train, sigma=sg_train)
-        idx_true = np.array(range(len(X_true)))
-
-    X_true, X_pred, features, mse, index_df = _predict(
+    X_true, X_pred, features, mse, indices = _predict(
         X_true=X_true,
         idx_true=idx_true,
         model_path=st_model_path,
-        single_feature=single_feature,
         savename=model_name + "___pred__" + st_selected_data_name,
     )
     mse_orig = mse.copy()
-    index_df = _load_multi_index(
-        data_path=st_selected_data_path, fallback_indices=index_df
-    )
 
-    multi_index_names = list(index_df["file"].unique())
-    if len(set(multi_index_names)) > 1:
-        st.write(
-            "**Multi-index file found**\nDataset is composed of the following:"
-        )
-        for name in multi_index_names:
-            st.code(name)
+    try:
+        df = _load_df(st_selected_data_path[:-4] + ".h5", index=indices)
+        if "source" in df.columns:
+            multi_index_names = list(df["source"].unique())
+            if len(multi_index_names) > 1:
+                st.write(
+                    "**Multi-index file found**\nDataset is composed of the following:"
+                )
+                for name in multi_index_names:
+                    st.code(name)
+    except FileNotFoundError:
+        pass
 
     st_subsample_frac = st.sidebar.number_input(
         min_value=0.01,
         max_value=1.0,
         value=0.01,
         step=0.01,
-        label="Percentage of original dataset to use",
+        label="Fraction of original dataset to use",
         key="st_subsample_frac",
     )
 
@@ -905,8 +930,9 @@ def main():
     ):
         return
 
-    X_true, X_pred, features, mse, index_df = _random_subset(
-        (X_true, X_pred, features, mse, index_df,),
+    # Pick a random subset to speed up computation
+    X_true, X_pred, features, mse, indices = _random_subset(
+        (X_true, X_pred, features, mse, indices),
         n_samples=int(len(X_true) * st_subsample_frac),
     )
     len_X_true_prefilter = len(X_true)
@@ -914,55 +940,58 @@ def main():
     # Keep only datapoints with len above a minimum length
     arr_lens = np.array([len(xi) for xi in X_true])
     (len_above_idx,) = np.where(arr_lens >= st_min_length)
-    X_true, X_pred, features, mse, index_df = get_index(
-        (X_true, X_pred, features, mse, index_df), index=len_above_idx
+
+    X_true, X_pred, features, mse, indices = get_index(
+        (X_true, X_pred, features, mse, indices), index=len_above_idx
     )
 
     # Keep only datapoints with error below threshold and cluster these
     # (high error data shouldn't be there)
     (errorbelow_idx,) = np.where(mse < st_mse_filter)
-    X_true, X_pred, features, mse, index_df = get_index(
-        (X_true, X_pred, features, mse, index_df), index=errorbelow_idx
+    X_true, X_pred, features, mse, indices = get_index(
+        (X_true, X_pred, features, mse, indices), index=errorbelow_idx
     )
 
-    pca_raw, _ = _pca(features, embed_into_n_components=2)
-    st.subheader("PCA of raw datapoints")
-    _plot_scatter(features=pca_raw)
-
-    clust_savename = model_name + "__" + st_selected_data_name
-
     st_cluster_on = st.sidebar.radio(
-        options=["raw", "umap"], index=0, label="Type of feature to cluster"
+        options=["umap", "raw"], index=0, label="Type of feature to cluster"
     )
     if st_cluster_on == "umap":
         c_features = _umap_embedding(
-            features=features, embed_into_n_components=2
+            features=features, embed_into_n_components=2, random_state = st_random_state
         )
     elif st_cluster_on == "raw":
         c_features = features
     else:
         raise NotImplementedError
 
-    cluster_labels_w_outliers = _cluster(
-        features=c_features, savename=clust_savename,
+    st_clust_min_size = st.sidebar.number_input(label="Min cluster size", value=30)
+    st_clust_min_samples = st.sidebar.number_input(
+        label="Min number of core points", value=10
     )
 
-    # perform both PCA and manifold of features
-    st.subheader("UMAP embedding")
+    cluster_labels_w_outliers = _cluster(
+        features=c_features,
+        min_cluster_size=st_clust_min_size,
+        min_core_points =st_clust_min_samples,
+    )
+
+    st.subheader("PCA")
+    pca_raw, _ = _pca(features, embed_into_n_components = 2)
+    _plot_scatter(features = features, cluster_labels = cluster_labels_w_outliers)
+
+    st.subheader("UMAP")
     _plot_scatter(features=c_features, cluster_labels=cluster_labels_w_outliers)
 
     # Remove HDBSCAN outliers before any further analysis
     (cluster_labels_idx,) = np.where(cluster_labels_w_outliers != -1)
 
-    (X_true, X_pred, features, mse, cluster_labels, index_df,) = get_index(
-        (X_true, X_pred, features, mse, cluster_labels_w_outliers, index_df,),
+    (X_true, X_pred, features, mse, cluster_labels, indices,) = get_index(
+        (X_true, X_pred, features, mse, cluster_labels_w_outliers, indices,),
         index=cluster_labels_idx,
     )
 
-    index_df["cluster"] = cluster_labels
     n_clusters = len(set(cluster_labels))
     len_X_true_postfilter = len(X_true)
-    n_rows_cols = int(np.ceil(np.sqrt(n_clusters)))
     colormap = lib.plotting.get_colors("viridis", n_colors=n_clusters)
 
     st.subheader(
@@ -1003,46 +1032,33 @@ def main():
     )
 
     # Iterate over every cluster, plot samples and pick up relevant statistics
-    # for later
-    # cluster_sample_indices = []
     lengths_in_cluster, percentage_of_samples = [], []
+    cluster_indexer = []
     for i in range(len(set(cluster_labels))):
-        (idx,) = np.where(cluster_labels == i)
-        percentage = (len(idx) / len_X_true_postfilter) * 100
+        (cidx,) = np.where(cluster_labels == i)
+        percentage = (len(cidx) / len_X_true_postfilter) * 100
 
-        if percentage < 1:
-            "_Cluster {} contains less than 1% of samples_".format(i)
+        # Index specifics for each cluster label
+        len_i = [len(xi) for xi in X_true[cidx]]
 
-        len_i = [len(xi) for xi in X_true[idx]]
-        mse_i = mse[idx]
-        X_true_i = X_true[idx]
-        X_pred_i = X_pred[idx]
+        mse_i, X_true_i, X_pred_i, indexer_i = get_index(
+            (mse, X_true, X_pred, indices), index=cidx
+        )
 
-        sample_indices_i = index_df["idx"].values[idx]
-        sample_files_i = index_df["file"].values[idx]
+        cluster_indexer.append(
+            pd.DataFrame({"cluster": [i] * len(indexer_i), "id": indexer_i})
+        )
 
         percentage_of_samples.append(percentage)
         lengths_in_cluster.append(len_i)
-
-        # index_df["cluster"].iloc[idx] = i
-        # cluster_sample_indices.append(index_df.iloc[idx])
 
         st.subheader(
             "Predictions for {} (N = {} ({:.1f} %))".format(
                 i, len(X_true_i), percentage
             )
         )
-
         if X_pred_i[0].shape[-1] == 2:
-            # Clathrin/auxilin specific block
-            has_peak, has_no_peak = _find_peaks(X_pred_i)
-            st.write("{} traces with peaks".format(has_peak))
-            st.write("{} traces with no peaks".format(has_no_peak))
-            st.write(
-                "{:.1f} % of traces have peaks".format(
-                    has_peak / (has_peak + has_no_peak) * 100
-                )
-            )
+            _clath_aux_peakfinder(X_true_i)
 
         if len(X_true) < st_nrows * st_ncols:
             nrows = len(X_true)
@@ -1054,8 +1070,8 @@ def main():
         _plot_traces_preview(
             X_true=X_true_i,
             X_pred=X_pred_i,
-            sample_indices=sample_indices_i,
-            sample_files=sample_files_i,
+            sample_indices=indexer_i,
+            sample_files=indexer_i,
             mse=mse_i,
             nrows=nrows,
             ncols=ncols,
@@ -1067,21 +1083,17 @@ def main():
             colors=["black", "red"],
         )
 
-    # cluster_sample_indices = pd.concat(cluster_sample_indices)
-    st.write(index_df.sort_values(by="idx").head())
+    cluster_indexer = pd.concat(cluster_indexer, sort=False)
 
     _save_cluster_sample_indices(
-        cluster_sample_indices=index_df,
+        cluster_sample_indices=cluster_indexer,
         model_name=model_name,
         data_name=st_selected_data_name,
     )
-    quit()
 
     st.subheader("Cluster length distributions")
     _plot_length_dist(
-        cluster_lengths=lengths_in_cluster,
-        n_rows_cols=n_rows_cols,
-        colors=colormap,
+        cluster_lengths=lengths_in_cluster, colors=colormap,
     )
 
     st.subheader("Mean (resampled) **true** traces in each cluster")
@@ -1089,18 +1101,16 @@ def main():
         X=X_true,
         cluster_labels=cluster_labels,
         cluster_lengths=lengths_in_cluster,
-        n_rows_cols=n_rows_cols,
         percentages=percentage_of_samples,
     )
 
-    # st.subheader("Mean (resampled) **precited** traces in each cluster")
-    # _plot_mean_trace(
-    #     X=X_pred,
-    #     cluster_labels=cluster_labels,
-    #     cluster_lengths=lengths_in_cluster,
-    #     n_rows_cols=n_rows_cols,
-    #     percentages=percentage_of_samples,
-    # )
+    st.subheader("Mean (resampled) **precited** traces in each cluster")
+    _plot_mean_trace(
+        X=X_pred,
+        cluster_labels=cluster_labels,
+        cluster_lengths=lengths_in_cluster,
+        percentages=percentage_of_samples,
+    )
 
 
 if __name__ == "__main__":

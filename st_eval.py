@@ -25,7 +25,6 @@ def _load_cluster_sample_idx(path):
     return pd.DataFrame(pd.read_hdf(path))
 
 
-@st.cache
 def _load_data(dataset_path):
     """
     Load same df as used for model fitting.
@@ -171,7 +170,7 @@ def _plot_random_video_positions(df, video_dir, video_files, nrows, ncols):
     st.write(fig)
 
 
-def _plot_nearest_neighbour_dist(nn_dists):
+def _plot_nearest_neighbour_dist(nn_dists, n_videos):
     """
     Plots a histogram of the nearest neighbour distribution
 
@@ -181,9 +180,14 @@ def _plot_nearest_neighbour_dist(nn_dists):
     bins = np.linspace(0, 150, 30)
 
     fig, ax = plt.subplots()
-    ax.hist(nn_dists, bins = bins, color = "darkgrey", label = "N = {}".format(len(nn_dists)))
+    ax.hist(
+        nn_dists,
+        bins=bins,
+        color="darkgrey",
+        label="N = {}, ({} videos)".format(len(nn_dists), n_videos),
+    )
     ax.set_xlim(0, 150)
-    ax.legend(loc = "upper right")
+    ax.legend(loc="upper right")
 
     st.write(fig)
 
@@ -191,7 +195,7 @@ def _plot_nearest_neighbour_dist(nn_dists):
 def main():
     # Select indices
     indices_dir = "results/cluster_indices/"
-    dataset_dir = "results/intensities/"
+    dataset_dir = "data/preprocessed/"
     top_video_dir = "/media/linux-data/Data/"
 
     st_indices_path = st.selectbox(
@@ -214,55 +218,73 @@ def main():
     st.write("**Dataset**:")
     st.code(df_path)
 
-    # Select a specific cluster
-    cluster_sample_idx = _load_cluster_sample_idx(st_indices_path)
-    cluster_label_set = list(cluster_sample_idx["cluster"].sort_values().unique())
-    multi_index_data_names = list(cluster_sample_idx["file"].unique())
+    df = _load_data(dataset_path=df_path)
 
-    if len(set(multi_index_data_names)) > 1:
-        st.write("**Multi-index file found:** Dataset is composed of the following:")
-        for name in multi_index_data_names:
-            st.code(name)
+    source_names = df["source"].unique()
+    if len(source_names) > 1:
+        if len(source_names) > 1:
+            st.write(
+                "**Multi-index file found:** Dataset is composed of the following:"
+            )
+            for name in source_names:
+                st.code(name)
 
-    st_selected_cidx = st.selectbox(
-        options=cluster_label_set, label="Select cluster", index = 0
+    # Select dataset
+    st_selected_data_name = st.multiselect(
+        options=source_names, label="Select dataset"
     )
-    st_selected_data_name = st.selectbox(
-        options = multi_index_data_names, index = 0, label = "Select dataset")
+    if not st_selected_data_name:
+        return
+    df = df[df["source"].isin(st_selected_data_name)]
 
-    selected_cidx = cluster_sample_idx[(cluster_sample_idx["cluster"] == st_selected_cidx) & (cluster_sample_idx["file"] == st_selected_data_name)]
-    selected_cidx = selected_cidx["idx"].values
+    # Select clusters
+    idx_file = _load_cluster_sample_idx(st_indices_path)
+    cluster_label_set = list(idx_file["cluster"].sort_values().unique())
+    st_selected_cidx = st.multiselect(
+        options=cluster_label_set, label="Select cluster"
+    )
+    if not st_selected_cidx:
+        return
 
-    st.write(selected_cidx)
-    st.write(max(selected_cidx))
+    # Get group IDs from dataset
+    cidx = idx_file[idx_file["cluster"].isin(st_selected_cidx)].values
 
-    df = _load_data(dataset_path = os.path.join(dataset_dir, st_selected_data_name))
-    dfc = _find_groups(df=df, indices=selected_cidx)
+    # This df contains all the clustered samples
+    dfc = df[df["id"].isin(cidx)]
+    video_names = dfc["file"].unique()
+
     _plot_trace_preview(dfc, nrows=5, ncols=5)
 
     select_mode = st.radio(
         label="Select videos...", options=["randomly", "from list"], index=0
     )
 
+    n_req_vids = 4
     if select_mode == "from list":
         files = st.multiselect(
-            options=dfc["file"].unique(), label="Select 4 videos to plot"
+            options=video_names,
+            label="Select {} videos to plot".format(n_req_vids),
         )
     else:
-        video_names = dfc["file"].unique()
-        files = np.random.choice(video_names, size=4)
+        files = np.random.choice(video_names, size=n_req_vids)
 
-    if len(files) == 4:
+    if len(files) == n_req_vids:
         _plot_random_video_positions(
             dfc, video_dir=top_video_dir, video_files=files, nrows=2, ncols=2
         )
 
+    video_grouping = dfc.groupby("file")
+
     nn_dists = lib.utils.groupby_parallel_apply(
-        grouped_df=dfc.groupby("file"), func=_nearest_neighbour_dist, concat = False
+        grouped_df=video_grouping, func=_nearest_neighbour_dist, concat=False,
     )
     nn_dists = np.concatenate(nn_dists)
 
-    _plot_nearest_neighbour_dist(nn_dists)
+    st.write(
+        "Counts may be lower than number of samples,"
+        "if video contained only 1 of a particular trace"
+    )
+    _plot_nearest_neighbour_dist(nn_dists=nn_dists, n_videos=len(video_names))
 
 
 if __name__ == "__main__":

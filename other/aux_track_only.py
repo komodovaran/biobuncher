@@ -12,7 +12,7 @@ from configobj import ConfigObj
 import lib.math
 import lib.plotting
 import lib.utils
-from get_track_positions import _get_videos, _tiffpath
+from other.get_track_positions import _get_videos, _tiffpath
 
 
 def _SET_CONFIG():
@@ -117,7 +117,7 @@ def _is_a_peak(group):
 
 if __name__ == "__main__":
     TIFFPATH = "data/kangmin_data/**/**/*.tif"
-    RESULTS_PATH = "results/intensities/auxtracks-tpy.h5"
+    RESULTS_PATH = "data/preprocessed/auxtracks-tpy.h5"
     CFG = ConfigObj("config/tracks_auxilin.cfg")
 
     TRACK_MINMASS_MULT = st.sidebar.text_input(

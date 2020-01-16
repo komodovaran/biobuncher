@@ -427,7 +427,7 @@ def residual_conv_autoencoder(
     Parameters
     ----------
     n_features:
-        Number of extracted_features in tom_data
+        Number of features in tom_data
     latent_dim:
         Latent dimension, i.e. how much it should be compressed
     n_timesteps:

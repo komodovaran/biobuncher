@@ -24,7 +24,7 @@ def _get_data():
     """
     Loads all traces
     """
-    X = np.load("results/intensities/intensities_resampled_minlen15_relen50.npz")[
+    X = np.load("data/preprocessed/intensities_resampled_minlen15_relen50.npz")[
         "tom_data"
     ]
     return X
@@ -32,13 +32,13 @@ def _get_data():
 
 @st.cache
 def _extract_ts_features(df, fc_params, load_precomputed):
-    savename = "results/extracted_features/tsfresh_features_{}.h5".format(
+    savename = "results/encodings/tsfresh_features_{}.h5".format(
         fc_params
     )
 
     if load_precomputed:
         try:
-            print("pre-computed extracted_features loaded from file")
+            print("pre-computed features loaded from file")
             return pd.read_hdf(savename)
         except FileNotFoundError:
             return _extract_ts_features(df, fc_params, load_precomputed=False)
@@ -67,7 +67,7 @@ def _extract_ts_features(df, fc_params, load_precomputed):
     )
 
     features.to_hdf(savename, key="df")
-    print("Saved extracted_features to disk")
+    print("Saved features to disk")
     return features
 
 

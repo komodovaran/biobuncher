@@ -158,7 +158,7 @@ def _plot_frame(video, x_zoom_pos, y_zoom_pos, frame_number):
 
 
 def main():
-    dataset_dir = "results/intensities"
+    dataset_dir = "data/preprocessed"
     top_video_dir = "/media/linux-data/Data"
 
     trace_id = st.sidebar.number_input(

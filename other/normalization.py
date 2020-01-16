@@ -8,7 +8,7 @@ def ragged_stat(arr, f):
     arr = np.array(arr)
     return f(np.concatenate(arr).ravel())
 
-X = np.load("../results/intensities/tracks-cme_split-c1_var.npz", allow_pickle = True)["data"]
+X = np.load("../data/preprocessed/tracks-cme_split-c1_var.npz", allow_pickle = True)["data"]
 
 X_plot = X[0:25].copy()
 

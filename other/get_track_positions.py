@@ -189,7 +189,7 @@ def _get_peak_ratios(df):
 
 if __name__ == "__main__":
     TIFFPATH = "data/kangmin_data/**/**/*.tif"
-    RESULTS_PATH = "results/intensities/tracks-tpy.h5"
+    RESULTS_PATH = "data/preprocessed/tracks-tpy.h5"
     CFG = ConfigObj("config/tracks_dual.cfg")
     BY = ["file", "particle"]
     start = time()

@@ -56,24 +56,17 @@ def cme_tracks_to_pandas(mat_path, rm_n_parent_dir=4):
     return pd.concat(df)
 
 
-if __name__ == "__main__":
-    NAMES = (
-        "CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6",
-        "CLTA-TagRFP EGFP-Aux1-A7D2",
-        "CLTA-TagRFP EGFP-Gak-A8",
-    )
-
-    for NAME in NAMES:
-        IN_PATH = "/media/tklab/linux-data/Data/{}/**/ProcessedTracks.mat".format(
-            NAME
-        )
-        OUT_PATH = "results/intensities/tracks-{}.h5".format(NAME)
+def main(names, input, output):
+    for name in names:
+        input = input.format(name)
+        output = output.format(name)
 
         experiment_name = (
-            IN_PATH.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
+            input.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
         )
+
         print("Processed experiment search string: ", experiment_name)
-        files = sorted(glob(IN_PATH, recursive=True))
+        files = sorted(glob(input, recursive=True))
         print("\nFound files:")
         [print(f) for f in files]
         print()
@@ -97,4 +90,16 @@ if __name__ == "__main__":
         print("Number of files in df: {}".format(len(df["file"].unique())))
 
         # ALl traces
-        df.to_hdf(OUT_PATH, key="df")
+        df.to_hdf(output, key="df")
+
+
+if __name__ == "__main__":
+    INPUT = "/media/tklab/linux-data/Data/{}/**/ProcessedTracks.mat"
+    OUTPUT = "data/preprocessed/tracks-{}.h5"
+    NAMES = (
+        "CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6",
+        "CLTA-TagRFP EGFP-Aux1-A7D2",
+        "CLTA-TagRFP EGFP-Gak-A8",
+    )
+
+    main(names=NAMES, input=INPUT, output=OUTPUT)

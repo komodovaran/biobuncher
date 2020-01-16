@@ -124,7 +124,7 @@ def calc_steplength(df, x_col, y_col):
 def maxabs_tensor(X, per_feature = False):
     """
     Sample-wise max-value normalization of 3D array (tensor).
-    This is not feature-wise normalization, to keep the ratios between extracted_features intact!
+    This is not feature-wise normalization, to keep the ratios between features intact!
     """
     if len(X.shape) == 2:
         X = X[np.newaxis, :, :]
