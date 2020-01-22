@@ -1,13 +1,7 @@
 import os
 import re
-import warnings
 from glob import glob
 from typing import Iterable
-from numba import NumbaPerformanceWarning
-
-warnings.simplefilter(action="ignore", category=FutureWarning, append = True)
-warnings.simplefilter(action="ignore", category=RuntimeWarning, append = True)
-warnings.simplefilter(action = "ignore", category = NumbaPerformanceWarning, append = True)
 
 import hdbscan
 import matplotlib.pyplot as plt
@@ -24,19 +18,20 @@ import sklearn.utils
 import sklearn.utils.random
 import streamlit as st
 import tensorflow as tf
+import umap.umap_ as umap
 from matplotlib.ticker import MaxNLocator
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
 
+import lib.globals
 import lib.math
 import lib.models
 import lib.plotting
 import lib.utils
 from lib.plotting import svg_write
 from lib.tfcustom import VariableTimeseriesBatchGenerator, gelu
-from lib.utils import get_index, pairwise
-import umap.umap_ as umap
+from lib.utils import get_index
 
 sns.set_style("dark")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
@@ -65,6 +60,7 @@ def _load_df(path, index=None):
     if index is not None:
         df = df[df["id"].isin(index)]
     return df
+
 
 @st.cache
 def _load_train_test_info(path):
@@ -114,8 +110,8 @@ def _standardize_train_test(X, mu, sigma, idx_train=None, idx_test=None):
         X (np.ndarray)
         mu (float)
         sigma (float)
-        idx_train (Union[np.ndarray, None])
-        idx_test (Union[np.ndarray, None])
+        idx_train (np.ndarray or None)
+        idx_test (np.ndarray or None)
     """
     if idx_train is None or idx_test is None:
         X = lib.math.standardize(X, mu, sigma)
@@ -142,7 +138,7 @@ def _standardize_single(X, mu, sigma):
     return lib.math.standardize(X, mu, sigma)
 
 
-@st.cache(allow_output_mutation = True, suppress_st_warning = True)
+@st.cache(allow_output_mutation=True, suppress_st_warning=True)
 def _prepare_data(X, model_dir, data_name, data_path, set_type):
     """
     Args:
@@ -152,9 +148,7 @@ def _prepare_data(X, model_dir, data_name, data_path, set_type):
         set_type (str)
     """
     # Always load mu and sg obtained from train set
-    idx_train, idx_test, mu_train, sg_train = _load_train_test_info(
-        model_dir
-    )
+    idx_train, idx_test, mu_train, sg_train = _load_train_test_info(model_dir)
 
     if data_name != os.path.basename(data_path):
         st.subheader("**External dataset chosen**")
@@ -182,6 +176,7 @@ def _prepare_data(X, model_dir, data_name, data_path, set_type):
             idx_true = np.concatenate((idx_train, idx_test))
 
     return X_true, idx_true, mu_train, sg_train
+
 
 def _latest_model(model_dir, recency=1):
     """
@@ -223,7 +218,7 @@ def _get_encoding_layer(
     return encoder
 
 
-def _predict(X_true, idx_true, model_path, savename):
+def _predict(X_true, idx_true, model_path, savename, zero_feature):
     """
     Predicts autoencoder features and saves them. Saving as npz is required for
     interactivity, as predictions use the GPU (which may not be available while
@@ -234,12 +229,13 @@ def _predict(X_true, idx_true, model_path, savename):
         idx_true (np.ndarray)
         model_path (str)
         savename (str)
+        zero_feature (int or None)
     """
     # See if there's a cached version
-    basepath = "results/encodings/{}"
-
     try:
-        f = np.load(basepath.format(savename), allow_pickle=True)
+        f = np.load(
+            os.path.join(lib.globals.encodings_dir, savename), allow_pickle=True
+        )
         X_true, X_pred, features, mse, indices = (
             f["X_true"],
             f["X_pred"],
@@ -280,19 +276,19 @@ def _predict(X_true, idx_true, model_path, savename):
         X_ = tf.data.Dataset.from_generator(
             generator=X_,
             output_types=(tf.float64, tf.float64),
-            output_shapes=(
-                (None, None, n_features),
-                (None, None, n_features),
-            ),
+            output_shapes=((None, None, n_features), (None, None, n_features),),
         )
 
         # Predict on batches and unravel for single-item use
         X_true, X_pred, features, mse = [], [], [], []
         for xi_true, _ in tqdm(X_):
             # Predict encoding
-            _xi_true = xi_true
-            _xi_true = _xi_true.numpy().copy()
-            _xi_true[..., 0] = 0
+            if zero_feature is not None:
+                _xi_true = xi_true
+                _xi_true = _xi_true.numpy()
+                _xi_true[..., 1] = 0
+            else:
+                _xi_true = xi_true
             fi = encoder.predict_on_batch(_xi_true)
 
             # Predict reconstruction
@@ -318,7 +314,7 @@ def _predict(X_true, idx_true, model_path, savename):
         X_true, X_pred, features, mse, indices
     )
     np.savez(
-        basepath.format(savename),
+        os.path.join(lib.globals.encodings_dir, savename),
         X_true=X_true,
         X_pred=X_pred,
         features=features,
@@ -351,7 +347,7 @@ def _pca(features, embed_into_n_components):
 
 
 @st.cache
-def _umap_embedding(features, embed_into_n_components=2, random_state = 0):
+def _umap_embedding(features, embed_into_n_components=2):
     """
     Calculates the UMAP embedding of raw input features for visualization.
 
@@ -359,33 +355,32 @@ def _umap_embedding(features, embed_into_n_components=2, random_state = 0):
         features (np.ndarray)
         embed_into_n_components (int)
     """
-    spread = np.std(features, axis = (0, 1))
+
+    # features = sklearn.decomposition.PCA(n_components = 10).fit_transform(features)
+    spread = np.std(features, axis=(0, 1))
 
     u = umap.UMAP(
         n_components=embed_into_n_components,
-        random_state = random_state,
-        spread = spread,
+        random_state=42,
+        spread=spread,
         n_neighbors=10,
-        min_dist=0.0,
-        init="spectral",
-        set_op_mix_ratio = 1,
-        learning_rate = 0.1,
-        n_epochs = 500,
+        min_dist=0.2,
+        init="random",
+        learning_rate=0.5,
+        n_epochs=1000,
     )
     return u.fit_transform(features)
 
 
 @st.cache
-def _cluster(
-    features, min_cluster_size=30, min_core_points=0
-):
+def _cluster(features, min_cluster_size=30, min_core_points=0):
     """
     Cluster points using HDBSCAN.
 
     Args:
         features (np.array)
         min_cluster_size (int)
-        min_core_points (int):
+        min_core_points (int)
     """
     clf = hdbscan.HDBSCAN(
         prediction_data=True,
@@ -442,18 +437,16 @@ def _random_subset(list_of_objs, n_samples):
     return lib.utils.get_index(list_of_objs, index=rand_idx)
 
 
-def _save_cluster_sample_indices(cluster_sample_indices, model_name, data_name):
+def _save_cluster_sample_indices(cluster_sample_indices, savename):
     """
     Save sample indices for clusters to later retrieve from dataset
 
     Args:
         cluster_sample_indices (pd.DataFrame)
-        model_name (str)
-        data_name (str)
+        savename (str)
     """
-    idx_savename = model_name + "_" + data_name + "__cidx.h5"
     cluster_sample_indices.to_hdf(
-        "results/cluster_indices/{}".format(idx_savename), key="df"
+        os.path.join(lib.globals.cluster_idx_dir, savename), key="df"
     )
 
 
@@ -464,7 +457,7 @@ def _find_peaks(X, n_frames=3, n_std=2):
     Args:
         X (np.ndarray)
         n_frames (int)
-        n_std (Union[int, float])
+        n_std (int or float)
     """
     has_peak = 0
     has_no_peak = 0
@@ -525,7 +518,7 @@ def _plot_scatter(features, cluster_labels=None):
 
     Args:
         features (np.ndarray)
-        cluster_labels (Union[np.ndarray, None])
+        cluster_labels (np.ndarray or None)
     """
     fig, ax = plt.subplots()
 
@@ -616,7 +609,6 @@ def _plot_traces_preview(
     mu,
     sg,
     colors,
-    single_feature=None,
 ):
     """
     Plots a subset of clustered traces for inspection
@@ -626,16 +618,14 @@ def _plot_traces_preview(
         X_pred (np.ndarray)
         mse (np.ndarray)
         sample_indices (np.ndarray)
-        sample_files (np.array):
+        sample_files (np.array)
         plot_real_values (bool)
         separate_y_ax (bool)
         nrows (int)
         ncols (int)
-        mu (Union[float, np.ndarray])
-        sg (Union[float, np.ndarray])
-        colors (List[str])
-        single_feature (Union[None, bool])
-
+        mu (float or np.ndarray)
+        sg (float or np.ndarray)
+        colors (list of str)
     """
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
     axes = axes.ravel()
@@ -662,10 +652,7 @@ def _plot_traces_preview(
 
         if plot_real_values:
             xi_true = xi_true * sg + mu
-            if single_feature is not None:
-                xi_pred = xi_pred * sg[single_feature] + mu[single_feature]
-            else:
-                xi_pred = xi_pred * sg + mu
+            xi_pred = xi_pred * sg + mu
 
         for c in range(xi_true.shape[-1]):
             if not separate_y_ax:
@@ -702,8 +689,6 @@ def _plot_traces_preview(
     svg_write(fig)
 
 
-@lib.utils.timeit
-@st.cache(allow_output_mutation=True, suppress_st_warning=True)
 def _plot_mean_trace(
     X, cluster_labels, cluster_lengths, percentages,
 ):
@@ -711,13 +696,13 @@ def _plot_mean_trace(
     Plots mean and std of resampled traces for each cluster.
 
     Args:
-        X (np.ndarray):
+        X (np.ndarray)
         cluster_labels (np.ndarray)
-        cluster_lengths (List[int])
-        percentages (List[float])
+        cluster_lengths (list of lists of int)
+        percentages (list of float)
     """
     for ij in lib.utils.pairwise_range(cluster_lengths):
-        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+        fig, axes = plt.subplots(ncols=2, figsize=(10, 5))
 
         for ax, i in zip(axes, ij):
             if i is not None:
@@ -738,11 +723,12 @@ def _plot_mean_trace(
                     t = traces[..., c]
                     lib.plotting.plot_timeseries_percentile(
                         t,
-                        ax = ax,
-                        color = clrs[c],
-                        min_percentile = 50 - 15,
-                        max_percentile = 50 + 15,
-                        n_percentiles = 10)
+                        ax=ax,
+                        color=clrs[c],
+                        min_percentile=50 - 15,
+                        max_percentile=50 + 15,
+                        n_percentiles=10,
+                    )
             else:
                 fig.delaxes(ax)
         svg_write(fig)
@@ -753,18 +739,22 @@ def _plot_length_dist(cluster_lengths, colors):
     Plots length distributions of each cluster.
 
     Args:
-        cluster_lengths (List[int])
-        colors (List[str])
+        cluster_lengths (list of lists of int)
+        colors (list of str)
     """
     bins = np.arange(0, 200, 10)
 
     for ij in lib.utils.pairwise_range(cluster_lengths):
-        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+        fig, axes = plt.subplots(ncols=2, figsize=(10, 5))
         for ax, i in zip(axes, ij):
             if i is not None:
                 ax.set_title("{}".format(i))
                 sns.distplot(
-                    cluster_lengths[i], bins=bins, kde=True, color=colors[i], ax=ax,
+                    cluster_lengths[i],
+                    bins=bins,
+                    kde=True,
+                    color=colors[i],
+                    ax=ax,
                 )
                 ax.set_xlabel("Length")
                 ax.set_xlim(0, 200)
@@ -779,12 +769,12 @@ def _plot_max_intensity(X, cluster_labels, n_rows_cols, colors, mu, sg):
     Plots mean and std of resampled traces for each cluster.
 
     Args:
-        X (np.ndarray):
-        cluster_labels (np.ndarray):
-        n_rows_cols (int):
-        colors (List[str]):
-        mu (Union[float, np.ndarray]):
-        sg (Union[float, np.ndarray]):
+        X (np.ndarray)
+        cluster_labels (np.ndarray)
+        n_rows_cols (int)
+        colors (list of str)
+        mu (float or np.ndarray)
+        sg (float or np.ndarray)
     """
     fig, axes = plt.subplots(nrows=n_rows_cols, ncols=n_rows_cols)
     axes = axes.ravel()
@@ -818,8 +808,10 @@ def main():
     st_random_state = st.sidebar.number_input(label="Random seed", value=0)
     np.random.seed(st_random_state)
 
-    model_dir = sorted(glob("models/*"))
-    data_dir = sorted(glob("data/preprocessed/*.npz"))
+    model_dir = sorted(glob(os.path.join(lib.globals.models_dir, "*")))
+    data_dir = sorted(
+        glob(os.path.join(lib.globals.data_preprocessed_dir, "*.npz"))
+    )
 
     st_model_path = st.selectbox(
         options=model_dir,
@@ -853,35 +845,60 @@ def main():
     if not st.checkbox(label="Check after setting paths", key="st_checkbox_1"):
         return
 
-    # Predict only on the test set (not really using the training set for
-    # anything downstream at the moment
-    single_feature = re.search("single=.*", st_model_path)
-    if single_feature is not None:
-        print("Using only single channel")
-        single_feature = int(single_feature[0][-1])
-
     # Check if selected dataset is the same as used for train/test
     # to provide this option
     st_data_type = st.sidebar.radio(
-        label = "Dataset to use for predictions",
-        options = ["all", "test", "train"],
-        index = 0,
+        label="Dataset to use for predictions",
+        options=["all", "test", "train"],
+        index=0,
     )
 
     st_selected_data_name = os.path.basename(st_selected_data_path)
 
     X = _load_npz(st_selected_data_path)
-    X_true, idx_true, mu_train, sg_train = _prepare_data(X = X,
-                                                         data_name = st_selected_data_name,
-                                                         data_path = default_data_path,
-                                                         model_dir = st_model_path,
-                                                         set_type = st_data_type)
+    X_true, idx_true, mu_train, sg_train = _prepare_data(
+        X=X,
+        data_name=st_selected_data_name,
+        data_path=default_data_path,
+        model_dir=st_model_path,
+        set_type=st_data_type,
+    )
 
-    X_true, X_pred, features, mse, indices = _predict(
+    st_set_zero = st.sidebar.radio(
+        options=["None", "1", "2"],
+        label="Select feature to set to 0 (thus ignoring it)",
+        index=0,
+        key="st_set_zero",
+    )
+    if st_set_zero != "None":
+        encoding_savename = (
+            model_name + "___pred__" + st_set_zero + st_selected_data_name
+        )
+        cluster_savename = (
+            model_name
+            + "___clust__"
+            + st_set_zero
+            + st_selected_data_name
+            + "__cidx.h5"
+        )
+        st_set_zero = int(st_set_zero)
+    else:
+        encoding_savename = model_name + "___pred__" + st_selected_data_name
+        cluster_savename = (
+            model_name
+            + "___clust__"
+            + st_set_zero
+            + st_selected_data_name
+            + "__cidx.h5"
+        )
+        st_set_zero = None
+
+    X_true, X_pred, encodings, mse, indices = _predict(
         X_true=X_true,
         idx_true=idx_true,
         model_path=st_model_path,
-        savename=model_name + "___pred__" + st_selected_data_name,
+        savename=encoding_savename,
+        zero_feature=st_set_zero,
     )
     mse_orig = mse.copy()
 
@@ -931,8 +948,8 @@ def main():
         return
 
     # Pick a random subset to speed up computation
-    X_true, X_pred, features, mse, indices = _random_subset(
-        (X_true, X_pred, features, mse, indices),
+    X_true, X_pred, encodings, mse, indices = _random_subset(
+        (X_true, X_pred, encodings, mse, indices),
         n_samples=int(len(X_true) * st_subsample_frac),
     )
     len_X_true_prefilter = len(X_true)
@@ -941,52 +958,57 @@ def main():
     arr_lens = np.array([len(xi) for xi in X_true])
     (len_above_idx,) = np.where(arr_lens >= st_min_length)
 
-    X_true, X_pred, features, mse, indices = get_index(
-        (X_true, X_pred, features, mse, indices), index=len_above_idx
+    X_true, X_pred, encodings, mse, indices = get_index(
+        (X_true, X_pred, encodings, mse, indices), index=len_above_idx
     )
 
     # Keep only datapoints with error below threshold and cluster these
     # (high error data shouldn't be there)
     (errorbelow_idx,) = np.where(mse < st_mse_filter)
-    X_true, X_pred, features, mse, indices = get_index(
-        (X_true, X_pred, features, mse, indices), index=errorbelow_idx
+    X_true, X_pred, encodings, mse, indices = get_index(
+        (X_true, X_pred, encodings, mse, indices), index=errorbelow_idx
     )
 
     st_cluster_on = st.sidebar.radio(
         options=["umap", "raw"], index=0, label="Type of feature to cluster"
     )
     if st_cluster_on == "umap":
-        c_features = _umap_embedding(
-            features=features, embed_into_n_components=2, random_state = st_random_state
+        c_encodings = _umap_embedding(
+            features=encodings,
+            embed_into_n_components=2,
         )
     elif st_cluster_on == "raw":
-        c_features = features
+        c_encodings = encodings
     else:
         raise NotImplementedError
 
-    st_clust_min_size = st.sidebar.number_input(label="Min cluster size", value=30)
+    st_clust_min_size = st.sidebar.number_input(
+        label="Min cluster size", value=30
+    )
     st_clust_min_samples = st.sidebar.number_input(
         label="Min number of core points", value=10
     )
 
     cluster_labels_w_outliers = _cluster(
-        features=c_features,
+        features=c_encodings,
         min_cluster_size=st_clust_min_size,
-        min_core_points =st_clust_min_samples,
+        min_core_points=st_clust_min_samples,
     )
 
     st.subheader("PCA")
-    pca_raw, _ = _pca(features, embed_into_n_components = 2)
-    _plot_scatter(features = features, cluster_labels = cluster_labels_w_outliers)
+    pca_raw, _ = _pca(encodings, embed_into_n_components=2)
+    _plot_scatter(features=encodings, cluster_labels=cluster_labels_w_outliers)
 
     st.subheader("UMAP")
-    _plot_scatter(features=c_features, cluster_labels=cluster_labels_w_outliers)
+    _plot_scatter(
+        features=c_encodings, cluster_labels=cluster_labels_w_outliers
+    )
 
     # Remove HDBSCAN outliers before any further analysis
     (cluster_labels_idx,) = np.where(cluster_labels_w_outliers != -1)
 
-    (X_true, X_pred, features, mse, cluster_labels, indices,) = get_index(
-        (X_true, X_pred, features, mse, cluster_labels_w_outliers, indices,),
+    (X_true, X_pred, encodings, mse, cluster_labels, indices,) = get_index(
+        (X_true, X_pred, encodings, mse, cluster_labels_w_outliers, indices,),
         index=cluster_labels_idx,
     )
 
@@ -1079,16 +1101,13 @@ def main():
             separate_y_ax=st_separate_y,
             mu=mu_train,
             sg=sg_train,
-            single_feature=single_feature,
             colors=["black", "red"],
         )
 
     cluster_indexer = pd.concat(cluster_indexer, sort=False)
 
     _save_cluster_sample_indices(
-        cluster_sample_indices=cluster_indexer,
-        model_name=model_name,
-        data_name=st_selected_data_name,
+        cluster_sample_indices=cluster_indexer, savename=cluster_savename
     )
 
     st.subheader("Cluster length distributions")

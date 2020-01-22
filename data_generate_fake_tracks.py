@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from lib.math import resample_timeseries
 
-
 def generate_fake_tracks(n_classes=3):
     """The nth class will always be no signal"""
     data = []

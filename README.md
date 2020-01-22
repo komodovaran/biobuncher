@@ -2,7 +2,7 @@
 1. Install conda and a conda environment ("what?" "how?" - Google it!)
 2. Install Tensorflow with `conda install tensorflow-gpu`. This **must** be installed as the first package. The contents
 here are only tested with version 2.0, but it should work on later ones as well. If done correctly, check 
-`/tests/test_tensorflow_gpu_is_working.py`
+`/checks/test_tensorflow_gpu_is_working.py`
 3. Install everything else with `pip install requirements.txt -r`
 
 ### Interactive scripts

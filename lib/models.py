@@ -564,7 +564,5 @@ def model_builder(
         save_weights_only=weights_only,
     )
 
-    os.system("chmod -R 777 {}".format(model_dir))
-
     callbacks = [mca, tb, es, rl]
     return model, callbacks, initial_epoch, model_dir

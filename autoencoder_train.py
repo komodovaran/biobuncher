@@ -82,17 +82,14 @@ if __name__ == "__main__":
     EARLY_STOPPING = 3
     EPOCHS = 100
     TRAIN_TEST_SIZE = 0.8
-    BATCH_SIZE = (64,)
+    BATCH_SIZE = (4,)
     CONTINUE_DIR = None
 
-    LATENT_DIM = (64,)
-    ACTIVATION = (
-        None,
-        "relu",
-    )
-    ZDIM = (64,)
-    EPS = (0.001,)
-    SINGLE_FEATURE = (None,)
+    LATENT_DIM = (128,)
+    ACTIVATION = (None,)
+    ZDIM = (32,)
+    EPS = (0.1,)
+    KEEP_ONLY = (0, None)
     ANNEAL_TIME = (20,)
 
     # Add iterables here
@@ -104,7 +101,7 @@ if __name__ == "__main__":
         _eps,
         _zdim,
         _anneal_time,
-        _single_feature,
+        _keep_only,
         _modelf,
     ) in itertools.product(
         INPUT_NPZ,
@@ -114,15 +111,15 @@ if __name__ == "__main__":
         EPS,
         ZDIM,
         ANNEAL_TIME,
-        SINGLE_FEATURE,
+        KEEP_ONLY,
         MODELF,
     ):
 
         X_raw = _get_data(_input_npz)
 
-        if _single_feature is not None:
+        if _keep_only is not None:
             X_raw = np.array(
-                [x[:, _single_feature].reshape(-1, 1) for x in X_raw]
+                [x[:, _keep_only].reshape(-1, 1) for x in X_raw]
             )
 
         N_FEATURES = X_raw[0].shape[-1]
@@ -148,9 +145,9 @@ if __name__ == "__main__":
         TAG += "_eps={}_zdim={}_anneal={}".format(
             _eps, _zdim, _anneal_time
         )  # vae parameters
-        if _single_feature is not None:
+        if _keep_only is not None:
             TAG += "_single={}".format(
-                _single_feature
+                _keep_only
             )  # Keep only one of the features
 
         data, lengths, info = _preprocess(
@@ -194,3 +191,4 @@ if __name__ == "__main__":
 
         # Save indices and normalization values to the newly created model directory
         np.savez(os.path.join(model_dir, "info.npz"), info=info)
+        os.system("chmod -R 777 {}".format(model_dir))
