@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import parmap
+import re
 
 pd.set_option("display.max_columns", 100)
 
@@ -25,11 +26,18 @@ def _filter(args):
         return group
 
 
-def _process(df, columns, path, filter):
+def _process(df, path, filter):
     """
     Save as filtered arrays, to make downstream processing easier
     """
     by = ["file", "particle"]
+
+    columns = []
+    for c in sorted(df.columns):
+        r = re.search(pattern = "int_c*", string = c)
+        if r is not None:
+            columns.append(r.string)
+
     grouped_df = df.groupby(by)
     df_filtered = pd.concat(
         parmap.map(_filter, tqdm(grouped_df), pm_processes=16), sort=False
@@ -49,7 +57,7 @@ def _process(df, columns, path, filter):
     print("Example check: ", arrays[-1].shape)
 
 
-def main(input, min_len, columns):
+def main(input, min_len):
     for i in input:
         # Need to globally declare for the parallel function to easily grab
         global FIRST_FRAME
@@ -57,15 +65,15 @@ def main(input, min_len, columns):
         global MIN_LEN
 
         df = pd.DataFrame(pd.read_hdf(i))
+
         FIRST_FRAME = df["t"].min()
         LAST_FRAME = df["t"].max()
 
-        _process(df=df, path=i, filter=min_len, columns=columns)
+        _process(df=df, path=i, filter=min_len)
 
 
 if __name__ == "__main__":
     INPUT = ("data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",)
     MIN_LEN = 5  # default 5
-    COLUMNS = ["int_c0", "int_c1"]
 
-    main(input=INPUT, min_len=MIN_LEN, columns=COLUMNS)
+    main(input=INPUT, min_len=MIN_LEN)

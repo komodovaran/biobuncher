@@ -601,7 +601,6 @@ def _plot_traces_preview(
     X_pred,
     mse,
     sample_indices,
-    sample_files,
     plot_real_values,
     separate_y_ax,
     nrows,
@@ -618,7 +617,6 @@ def _plot_traces_preview(
         X_pred (np.ndarray)
         mse (np.ndarray)
         sample_indices (np.ndarray)
-        sample_files (np.array)
         plot_real_values (bool)
         separate_y_ax (bool)
         nrows (int)
@@ -635,7 +633,6 @@ def _plot_traces_preview(
             xi_pred = X_pred[i]
             ei = mse[i]
             idx = sample_indices[i]
-            file = sample_files[i]
         except IndexError:
             fig.delaxes(ax)
             continue
@@ -644,8 +641,7 @@ def _plot_traces_preview(
 
         ax.set_title(
             "E = {:.2f}, L = {}\n"
-            "idx = {}\n"
-            "{}".format(ei, len(xi_true), idx, file),
+            "idx = {}\n".format(ei, len(xi_true), idx),
             fontsize=5,
         )
         ax.set_xticks(())
@@ -913,7 +909,7 @@ def main():
                 for name in multi_index_names:
                     st.code(name)
     except FileNotFoundError:
-        pass
+        df = None
 
     st_subsample_frac = st.sidebar.number_input(
         min_value=0.01,
@@ -1063,12 +1059,22 @@ def main():
         # Index specifics for each cluster label
         len_i = [len(xi) for xi in X_true[cidx]]
 
-        mse_i, X_true_i, X_pred_i, indexer_i = get_index(
+        mse_i, X_true_i, X_pred_i, indices_i = get_index(
             (mse, X_true, X_pred, indices), index=cidx
         )
 
+        # TODO: utilize sub_id
+        if df is not None:
+            sub_df = df[df["id"].isin(indices_i)]
+            sub_file_idx = sub_df["sub_id"].unique().values
+            st.write(sub_file_idx)
+            if not len(sub_file_idx) == X_true_i:
+                raise ValueError
+        else:
+            sub_file_idx = None
+
         cluster_indexer.append(
-            pd.DataFrame({"cluster": [i] * len(indexer_i), "id": indexer_i})
+            pd.DataFrame({"cluster": [i] * len(indices_i), "id": indices_i})
         )
 
         percentage_of_samples.append(percentage)
@@ -1092,8 +1098,7 @@ def main():
         _plot_traces_preview(
             X_true=X_true_i,
             X_pred=X_pred_i,
-            sample_indices=indexer_i,
-            sample_files=indexer_i,
+            sample_indices=indices_i,
             mse=mse_i,
             nrows=nrows,
             ncols=ncols,

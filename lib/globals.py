@@ -1,4 +1,5 @@
 groupby = ["file", "particle"]
+groupby_src = ["file", "particle", "source"]
 
 models_dir = "models/"
 data_preprocessed_dir = "data/preprocessed/"

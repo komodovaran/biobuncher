@@ -6,6 +6,11 @@ from tqdm import tqdm
 
 
 def main(inputs, output):
+    """
+    Args:
+        inputs (iter of str):
+        output (str):
+    """
     arrs_ls, dfs_ls = [], []
     lengths = []
     indices = []
