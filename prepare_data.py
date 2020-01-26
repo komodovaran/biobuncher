@@ -34,7 +34,7 @@ def _process(df, path, filter):
 
     columns = []
     for c in sorted(df.columns):
-        r = re.search(pattern = "int_c*", string = c)
+        r = re.search(pattern="int_c*", string=c)
         if r is not None:
             columns.append(r.string)
 
@@ -65,15 +65,17 @@ def main(input, min_len):
         global MIN_LEN
 
         df = pd.DataFrame(pd.read_hdf(i))
-
         FIRST_FRAME = df["t"].min()
         LAST_FRAME = df["t"].max()
-
         _process(df=df, path=i, filter=min_len)
 
 
 if __name__ == "__main__":
-    INPUT = ("data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",)
+    INPUT_DF = (
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.h5",
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.h5",
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",
+    )
     MIN_LEN = 5  # default 5
 
-    main(input=INPUT, min_len=MIN_LEN)
+    main(input=INPUT_DF, min_len=MIN_LEN)

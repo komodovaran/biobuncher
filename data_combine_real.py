@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from lib.globals import groupby
 
 
 def main(inputs, output):
@@ -27,12 +28,12 @@ def main(inputs, output):
         h5["source"] = os.path.basename(npz_path)
 
         # ID for sub-dataset
-        h5["sub_id"] = h5.groupby(["file", "particle"]).ngroup()
+        h5["sub_id"] = h5.groupby(groupby).ngroup()
 
         # ID for combined dataset
         ids.append(h5["sub_id"].values)
 
-        ngroups = h5.groupby(["file", "particle"]).ngroups
+        ngroups = h5.groupby(groupby).ngroups
 
         lengths.append(ngroups)
         idx = np.arange(0, ngroups, 1)
@@ -74,10 +75,10 @@ def main(inputs, output):
 
 if __name__ == "__main__":
     INPUTS = (
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.npz",
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.npz",
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.npz",
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt20_var.npz",
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt20_var.npz",
+        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt20_var.npz",
     )
-    OUTPUT = "data/preprocessed/combined_filt5_var"
+    OUTPUT = "data/preprocessed/combined_filt20_var"
 
     main(inputs=INPUTS, output=OUTPUT)

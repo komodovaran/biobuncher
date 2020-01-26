@@ -286,6 +286,9 @@ def main():
     )
     _plot_nearest_neighbour_dist(nn_dists=nn_dists, n_videos=len(video_names))
 
+    if st.button(label = "Save selection to file"):
+        dfc.to_hdf("")
+
 
 if __name__ == "__main__":
     main()

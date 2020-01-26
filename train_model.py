@@ -85,9 +85,13 @@ if __name__ == "__main__":
     BATCH_SIZE = (4,)
     CONTINUE_DIR = None
 
+    # Remember to end everything with a comma to make single values iterable
+    # latent dim is the model memory capacity
+    # zdim is the vector representation
+    # Best results have been found with keeping latent dim high and zdim low
     LATENT_DIM = (128,)
     ACTIVATION = (None,)
-    ZDIM = (32,)
+    ZDIM = (4,)
     EPS = (0.1,)
     KEEP_ONLY = (0, None)
     ANNEAL_TIME = (20,)
@@ -118,9 +122,7 @@ if __name__ == "__main__":
         X_raw = _get_data(_input_npz)
 
         if _keep_only is not None:
-            X_raw = np.array(
-                [x[:, _keep_only].reshape(-1, 1) for x in X_raw]
-            )
+            X_raw = np.array([x[:, _keep_only].reshape(-1, 1) for x in X_raw])
 
         N_FEATURES = X_raw[0].shape[-1]
 
@@ -191,4 +193,3 @@ if __name__ == "__main__":
 
         # Save indices and normalization values to the newly created model directory
         np.savez(os.path.join(model_dir, "info.npz"), info=info)
-        os.system("chmod -R 777 {}".format(model_dir))

@@ -214,3 +214,37 @@ def plot_timeseries_percentile(timeseries, ax, n_percentiles = 10, min_percentil
     for i in range(half):
         ax.fill_between(np.arange(0, length, 1), sdist[i, :], sdist[-(i + 1), :], facecolor = cmap(i / half), edgecolor = cmap(i / half))
     return ax
+
+
+def rearrange_labels(X, cluster_labels, sort_on_column=0):
+    """
+    Sorts and rearranges cluster labels, so they appear in order of appereance
+    instead of randomly.
+
+    Args:
+        X (np.array):
+        cluster_labels (np.array):
+        sort_on_column (int):
+
+    Returns:
+        Sorted cluster labels and corresponding centers
+    """
+    labels, ctrs = [], []
+    for i in range(len(set(cluster_labels))):
+        Xi = X[cluster_labels == i]
+        ctr = np.mean(Xi, axis=0)
+        labels.append(i)
+        ctrs.append(ctr)
+
+    ctrs = np.row_stack(ctrs)
+    labels = np.array(labels).reshape(-1, 1)
+
+    # sort on x column
+    new_order = ctrs[:, sort_on_column].argsort()
+
+    labels_new = labels[new_order]
+    ctrs_new = ctrs[new_order]
+
+    # replace labels with their new variants in the array of cluster labels
+    np.put(cluster_labels, labels, labels_new)
+    return cluster_labels, ctrs_new

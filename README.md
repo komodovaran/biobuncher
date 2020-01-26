@@ -28,6 +28,19 @@ group index in the sub-dataset. Group order is only preserved if dataframe group
 for combined dataframes `['source', 'file', 'particle']`. To combine dataframes, the inputs are stacked in loaded order
 (which must therefore also be sorted!). All of this is done automatically, if the right sequence of steps is taken. 
 
+
+### Scripts to run, step by step
+1. `get_cme_tracks.py` to convert from CME `.mat` files to a dataframe.
+2. `prepare_data.py` to filter out too short data (set it low initially to be safe).
+3. `autoencoder_train.py` to train a model on the data.
+4. `st_predict.py` to predict and plot the data. This also requires training a UMAP model, which can take ~10 min for each refresh.
+5. `st_eval.py` once clustering is done and you want to explore the data.
+
+### Things to avoid
+In order to preserve group ordering, the original dataframes must be run through `prepare_data.py` if they need to be
+filtered in some way. **DO NOT** run a combine dataframe through a filter, because this messes up the internal group
+ordering that was first established when creating the combined dataframe.
+
 ### Troubleshooting
 What to do if Streamlit doesn't finish running:
 
