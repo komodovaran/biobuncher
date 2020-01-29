@@ -61,6 +61,8 @@ def main(names, input, output):
         input = input.format(name)
         output = output.format(name)
 
+        print(input)
+
         experiment_name = (
             input.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
         )
@@ -94,7 +96,7 @@ def main(names, input, output):
 
 
 if __name__ == "__main__":
-    INPUT = "/media/tklab/linux-data/Data/{}/**/ProcessedTracks.mat"
+    INPUT = "../../../Data/{}/**/ProcessedTracks.mat"
     OUTPUT = "data/preprocessed/tracks-{}.h5"
     NAMES = (
         "CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6",

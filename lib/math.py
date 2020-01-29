@@ -1,10 +1,14 @@
 import numpy as np
 import parmap
 import scipy.interpolate
-from scipy import fftpack
-from lib.utils import timeit, est_proc
 import sklearn.mixture
+from scipy import fftpack
+from scipy.cluster import hierarchy
+from scipy.spatial import distance
+from sklearn.metrics.pairwise import euclidean_distances
 from tqdm import tqdm
+
+from lib.utils import est_proc, timeit
 
 
 def div0(a, b):
@@ -182,10 +186,15 @@ def modified_z_score(x):
     return modified_z
 
 
-def standardize(X: np.ndarray, mu: float, sigma: float) -> np.ndarray:
+def standardize(X, mu, sigma):
     """
     Standardizes given samples individually to (0, 1) normal distribution.
     Works on unevenly sized arrays too.
+
+    Args:
+        X (np.ndarray)
+        mu (float)
+        sigma (float)
     """
     return np.array([((xi - mu) / sigma) for xi in X])
 
@@ -493,3 +502,17 @@ def mean_abs_dev_outlier(array, cutoff = 3.5):
     med = np.median(array)
     modified_std = np.median(np.abs(array - med))
     return modified_std, med+cutoff*modified_std
+
+
+def hierachical_linkage(points):
+    """
+    Converts distances between points to a condensed hierachical distance
+    array for scipy dendrogram
+
+    Args:
+        points (np.ndarray)
+    """
+    square_distance_mat = np.round(euclidean_distances(points), 2)
+    condensed_dist = distance.squareform(square_distance_mat)
+    z = hierarchy.linkage(condensed_dist, method = "single", metric = "euclidean")
+    return z

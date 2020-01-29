@@ -1,33 +1,23 @@
 import datetime
-import os
 from glob import glob
 from pathlib import Path
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 from tensorflow.keras.callbacks import *
-from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import (
     Activation,
-    BatchNormalization,
     Bidirectional,
-    Conv1D,
     CuDNNLSTM,
     Dense,
     Dropout,
-    Flatten,
     Input,
     Lambda,
-    Masking,
-    MaxPool1D,
-    Reshape,
     TimeDistributed,
-    UpSampling1D,
 )
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.regularizers import L1L2
-
-import tensorflow_probability as tfp
 
 # define Tensorflow probability distributions
 Bernoulli = tfp.distributions.Bernoulli
@@ -37,10 +27,30 @@ KL = tfp.distributions.kl_divergence
 
 from lib.tfcustom import (
     KLDivergenceLayer,
-    ResidualConv1D,
     VariableRepeatVector,
     gelu,
 )
+
+
+def recall_m(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
+
+
+def precision_m(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
+
+
+def f1_m(y_true, y_pred):
+    precision = precision_m(y_true, y_pred)
+    recall = recall_m(y_true, y_pred)
+    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
 
 
 def lstm_autoencoder(n_timesteps, n_features, latent_dim, activation="elu"):
@@ -132,148 +142,6 @@ def lstm_autoencoder_sparse(
     autoencoder.compile(
         optimizer="adam", loss="mse", metrics=["mse"],
     )
-    return autoencoder
-
-
-def conv_autoencoder(n_timesteps, n_features, latent_dim):
-    """
-    Parameters
-    ----------
-    n_features:
-        Number of extracted_features in data
-    latent_dim:
-        Latent dimension, i.e. how much it should be compressed
-    n_timesteps:
-        Number of timesteps in tom_data
-
-    Returns
-    -------
-    encoder:
-        Extract latent vector from tom_data
-    decoder:
-        Decode latent vector to tom_data
-    autoencoder:
-        Encode tom_data to latent vector and recreate from that
-    """
-    p = {"padding": "same", "kernel_initializer": "he_uniform"}
-    activation = "relu"
-
-    # ENCODER
-    inputs = Input((n_timesteps, n_features))
-    mask = Masking(mask_value=0)(inputs)
-
-    x = Conv1D(64, 1, **p)(mask)
-    x = BatchNormalization()(x)
-    x = Activation(activation)(x)
-
-    x = MaxPool1D(5, padding="same")(x)
-
-    x = Conv1D(64, 3, **p)(x)
-    x = BatchNormalization()(x)
-    x = Activation(activation)(x)
-
-    x = MaxPool1D(5, padding="same")(x)
-
-    # Encoding and reshaping
-    x = Flatten()(x)
-    x = Dense(latent_dim, activation=None, name="encoded")(x)
-    x = Dropout(0.2)(x)
-    x = Reshape((latent_dim, 1))(x)
-    x = Conv1D(1, 1, activation=None, padding="same")(x)
-
-    # DECODER
-    x = UpSampling1D(5)(x)
-
-    x = Conv1D(64, 3, **p)(x)
-    x = BatchNormalization()(x)
-    x = Activation(activation)(x)
-
-    x = UpSampling1D(3)(x)
-
-    x = Conv1D(64, 3, **p)(x)
-    x = BatchNormalization()(x)
-    x = Activation(activation)(x)
-
-    # To make shape fit again
-    outputs = Conv1D(n_features, 1, activation=None, **p)(x)
-
-    # AUTOENCODER
-    autoencoder = Model(inputs=inputs, outputs=outputs)
-    autoencoder.compile(optimizer=Adam(lr=0.001), loss="mse")
-    return autoencoder
-
-
-def residual_conv_autoencoder(n_timesteps, n_features, latent_dim):
-    """
-    Autoencoder with residuals. Requires a large number of datapoints to be viable.
-    Pooling layers fix the dimensionality
-
-    Parameters
-    ----------
-    n_features:
-        Number of extracted_features in tom_data
-    latent_dim:
-        Latent dimension, i.e. how much it should be compressed
-    n_timesteps:
-        Number of timesteps in tom_data
-
-    Returns
-    -------
-    encoder:
-        Extract latent vector from tom_data
-    decoder:
-        Decode latent vector to tom_data
-    autoencoder:
-        Encode tom_data to latent vector and recreate from that
-    """
-    p = {"padding": "same", "kernel_initializer": "he_uniform"}
-
-    # Convolutions control (filters, size) if padding = "same"
-    activation = "relu"
-    latent_dim = 20
-
-    # ENCODER
-    i = Input((n_timesteps, n_features))
-    mask = Masking(mask_value=0)(i)
-
-    x = Conv1D(2, 1, **p)(mask)
-    x = BatchNormalization()(x)
-    x = Activation(activation)(x)
-
-    x = ResidualConv1D(4, 31, activation, pool=True)(x)
-    x = ResidualConv1D(4, 31, activation)(x)
-
-    x = ResidualConv1D(8, 15, activation, pool=True)(x)
-    x = ResidualConv1D(8, 15, activation)(x)
-
-    x = ResidualConv1D(16, 7, activation, pool=True)(x)
-    x = ResidualConv1D(16, 7, activation)(x)
-
-    x = Flatten()(x)
-    x = Dense(latent_dim, activation=None, name="encoded")(x)
-    x = Dropout(0.2)(x)
-    x = Reshape((latent_dim, 1))(x)
-    x = Conv1D(1, 1, activation=None, padding="same")(x)
-
-    # DECODER
-    x = UpSampling1D(5)(x)
-
-    x = ResidualConv1D(16, 7, activation)(x)
-    x = ResidualConv1D(16, 7, activation)(x)
-
-    x = UpSampling1D(3)(x)
-
-    x = ResidualConv1D(8, 15, activation, pool=True)(x)
-    x = ResidualConv1D(8, 15, activation)(x)
-
-    x = ResidualConv1D(4, 31, activation, pool=True)(x)
-    x = ResidualConv1D(4, 31, activation)(x)
-
-    x = Conv1D(n_features, 1, activation=None, **p)(x)
-
-    # AUTOENCODER
-    autoencoder = Model(inputs=i, outputs=x)
-    autoencoder.compile(optimizer=Adam(lr=0.001), loss="mse")
     return autoencoder
 
 
@@ -399,74 +267,6 @@ def lstm_cat_vae(
     return vae
 
 
-def lstm_vae_bidir_stacked(
-    n_timesteps,
-    n_features,
-    intermediate_dim,
-    kl_weight,
-    eps=1,
-    z_dim=2,
-    activation=None,
-):
-    """
-    Variational autoencoder for variable length time series. Cannot sample over
-    the input space, because of variable-length time series compatibility
-    """
-
-    def _sample(args):
-        """
-        The sampling function to draw a latent vector from a normal distribution
-        in z with a mu and a sigma
-        """
-        z_mean, z_log_var = args
-        epsilon = K.random_normal(
-            shape=(K.shape(z_mean)[0], z_dim), mean=0.0, stddev=eps
-        )
-        return z_mean + K.exp(z_log_var / 2) * epsilon
-
-    if activation == "gelu":
-        activation = gelu
-
-    inputs = Input(shape=(n_timesteps, n_features))
-    # encode -> (latent_dim, )
-    xe = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=True))(
-        inputs
-    )
-
-    xe = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=False))(xe)
-
-    xe = Dense(intermediate_dim)(xe)
-
-    xe = Activation(activation)(xe)
-
-    # Create a n-dimensional distribution to sample from
-    z_mu = Dense(z_dim, name="z_mu")(xe)
-    z_log_var = Dense(z_dim, name="z_var")(xe)
-
-    # Add a layer that calculates the KL loss and returns the values
-    z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
-
-    # sample vector from the latent distribution
-    z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
-
-    # Repeat so it fits into LSTM
-    xd = VariableRepeatVector()([inputs, z])
-    xd = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=True))(xd)
-    xd = Bidirectional(
-        CuDNNLSTM(intermediate_dim, return_sequences=True, name="decoded")
-    )(xd)
-
-    xd = Activation(activation)(xd)
-    # Make sure the final activation is linear and correct dimensionality
-    outputs = TimeDistributed(Dense(n_features, activation=None))(xd)
-
-    # Start with 0 weight for the KL loss, and slowly increase with callback
-    vae = Model(inputs, outputs)
-    vae.compile(optimizer="adam", loss="mse")
-    vae.summary()
-    return vae
-
-
 def lstm_vae_unidir(
     n_timesteps,
     n_features,
@@ -515,6 +315,27 @@ def lstm_vae_unidir(
     vae.compile(optimizer="adam", loss="mse")
     vae.summary()
     return vae
+
+
+def lstm_classifier(n_timesteps, n_features, intermediate_dim):
+    """
+    Simple bidirectional LSTM classifier
+    """
+    inputs = Input(shape=(n_timesteps, n_features))
+    x = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=False))(
+        inputs
+    )
+    x = Dropout(0.4)(x)
+    output = Dense(2, activation="softmax")(x)
+
+    model = Model(inputs, output)
+    model.compile(
+        optimizer="adam",
+        loss="binary_crossentropy",
+        metrics=[f1_m],
+    )
+    model.summary()
+    return model
 
 
 def model_builder(

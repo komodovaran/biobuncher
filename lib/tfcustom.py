@@ -53,13 +53,16 @@ class VariableTimeseriesBatchGenerator:
     """
 
     def __init__(
-        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices=None
+        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices=None, y = None
     ):
         if indices is None:
             indices = np.arange(0, len(X), 1)
         self.batch_by_length(
-            X, max_batch_size, shuffle_samples, shuffle_batches, indices
+            X, max_batch_size, shuffle_samples, shuffle_batches, indices, y
         )
+
+        if y is None:
+            self.y = None
 
     @staticmethod
     def chunk(l, n):
@@ -70,7 +73,7 @@ class VariableTimeseriesBatchGenerator:
             yield l[i : i + n]
 
     def batch_by_length(
-        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices
+        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices, y = None
     ):
         """
         Batches a list of variable-length samples into equal-sized tensors
@@ -78,15 +81,20 @@ class VariableTimeseriesBatchGenerator:
         """
         # Shuffle samples before batching
         if shuffle_samples:
-            X, indices = sklearn.utils.shuffle(X, indices)
+            if y is not None:
+                X, y, indices = sklearn.utils.shuffle(X, y, indices)
+            else:
+                X, indices = sklearn.utils.shuffle(X, indices)
 
         lengths = [len(xi) for xi in X]
         length_brackets = np.unique(lengths)
 
         # initialize empty batches for each length
-        length_batches = [[] for _ in range(len(length_brackets))]
+        X_batches = [[] for _ in range(len(length_brackets))]
         idx_batches = [[] for _ in range(len(length_brackets))]
-        if len(length_batches) != len(length_brackets):
+        y_batches = [[] for _ in range(len(length_brackets))]
+
+        if len(X_batches) != len(length_brackets):
             raise ValueError
 
         # Go through each sample and find out where it belongs
@@ -98,27 +106,44 @@ class VariableTimeseriesBatchGenerator:
             (belongs_to,) = np.where(len(xi) == length_brackets)[0]
 
             # Place sample there
-            length_batches[belongs_to].append(xi)
+            X_batches[belongs_to].append(xi)
             idx_batches[belongs_to].append(idx)
+
+            if y is not None:
+                yi = y[i]
+                y_batches[belongs_to].append(yi)
 
         # Break into smaller chunks so that a batch is at most max_batch_size
         dataset = []
         index = []
-        for j in range(len(length_batches)):
-            sub_batch = list(self.chunk(length_batches[j], max_batch_size))
+        labels = []
+        for j in range(len(X_batches)):
+            sub_batch = list(self.chunk(X_batches[j], max_batch_size))
             sub_idx = list(self.chunk(idx_batches[j], max_batch_size))
+
+            if y is not None:
+                sub_y = list(self.chunk(y_batches[j], max_batch_size))
+            else:
+                sub_y = []
 
             for k in range(len(sub_batch)):
                 dataset.append(sub_batch[k])
                 index.append(sub_idx[k])
+                if y is not None:
+                    labels.append(sub_y[k])
 
         # Now transform each batch to a tensor
         dataset = [np.array(batch) for batch in dataset]
         index_set = [np.array(index_batch) for index_batch in index]
+        if y is not None:
+            labels = [np.array(label_batch) for label_batch in labels]
 
         # Shuffle batches of different lengths (not individual samples)
         if shuffle_batches:
-            dataset, index_set = sklearn.utils.shuffle(dataset, index_set)
+            if y is not None:
+                dataset, index_set, labels = sklearn.utils.shuffle(dataset, index_set, labels)
+            else:
+                dataset, index_set = sklearn.utils.shuffle(dataset, index_set)
 
         for b in dataset:
             if len(b) > max_batch_size:
@@ -129,6 +154,7 @@ class VariableTimeseriesBatchGenerator:
         self.indices = np.array(lib.utils.flatten_list(index_set))
         self.steps_per_epoch = len(dataset)
         self.batch_sizes = [len(batch) for batch in dataset]
+        self.y = labels
 
     def __call__(self):
         """
@@ -137,7 +163,11 @@ class VariableTimeseriesBatchGenerator:
         """
         for i in range(len(self.batches)):
             xi = self.batches[i]
-            yield xi, xi
+            if self.y is not None:
+                yi = self.y[i]
+                yield xi, yi
+            else:
+                yield xi, xi
 
 
 class VariableRepeatVector:

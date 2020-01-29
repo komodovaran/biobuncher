@@ -52,6 +52,7 @@ def _preprocess(X, n_features, max_batch_size, train_size):
         # Batch into variable batches to speed up (but see caveats)
         Xi = VariableTimeseriesBatchGenerator(
             X=X.tolist(),
+            y = None,
             max_batch_size=max_batch_size,
             shuffle_samples=True,
             shuffle_batches=True,
@@ -76,7 +77,7 @@ def _preprocess(X, n_features, max_batch_size, train_size):
 if __name__ == "__main__":
     MODELF = (lib.models.lstm_vae_bidir,)
 
-    INPUT_NPZ = ("data/preprocessed/combined_filt5_var.npz",)
+    INPUT_NPZ = ("data/preprocessed/saved_c12.npz",)
 
     N_TIMESTEPS = None
     EARLY_STOPPING = 3
@@ -93,7 +94,7 @@ if __name__ == "__main__":
     ACTIVATION = (None,)
     ZDIM = (4,)
     EPS = (0.1,)
-    KEEP_ONLY = (0, None)
+    KEEP_ONLY = (None,)
     ANNEAL_TIME = (20,)
 
     # Add iterables here

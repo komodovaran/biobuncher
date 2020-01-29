@@ -5,22 +5,29 @@ from typing import Iterable
 
 import hdbscan
 import matplotlib.pyplot as plt
+
+# noinspection PyUnresolvedReferences
+import mpl_scatter_density
 import numpy as np
 import pandas as pd
 import parmap
+
 import seaborn as sns
 import sklearn.manifold
+from scipy.cluster import hierarchy
 import sklearn.metrics
 import sklearn.mixture
 import sklearn.model_selection
 import sklearn.preprocessing
 import sklearn.utils
 import sklearn.utils.random
-from sklearn.cluster import AffinityPropagation, AgglomerativeClustering, KMeans
 import streamlit as st
 import tensorflow as tf
 import umap.umap_ as umap
+
 from matplotlib.ticker import MaxNLocator
+from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.metrics import silhouette_score
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
@@ -32,12 +39,13 @@ import lib.plotting
 import lib.utils
 from lib.plotting import svg_write
 from lib.tfcustom import VariableTimeseriesBatchGenerator, gelu
-from lib.utils import get_index
+from lib.utils import get_index, timeit
 
 sns.set_style("dark")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
 
 
+@timeit
 @st.cache
 def _load_npz(path):
     """
@@ -49,6 +57,7 @@ def _load_npz(path):
     return np.load(path, allow_pickle=True)["data"]
 
 
+@timeit
 @st.cache
 def _load_df(path, index=None):
     """
@@ -63,6 +72,7 @@ def _load_df(path, index=None):
     return df
 
 
+@timeit
 @st.cache
 def _load_train_test_info(path):
     """
@@ -125,32 +135,17 @@ def _standardize_train_test(X, mu, sigma, idx_train=None, idx_test=None):
     return X
 
 
-@st.cache
-def _standardize_single(X, mu, sigma):
+@timeit
+def _prepare_data(X, mu_train, sigma_train):
     """
-    Normalizes a single array
-
     Args:
-        X (np.array)
+        X (np.ndarray)
         mu (float)
-        sigma (float)
-
+        sg (float)
     """
-    return lib.math.standardize(X, mu, sigma)
-
-
-@st.cache
-def _prepare_data(X, model_dir):
-    """
-    Args:
-        X (np.array)
-        model_dir (str)
-    """
-    # Always load mu and sg obtained from train set
-    idx_train, idx_test, mu_train, sg_train = _load_train_test_info(model_dir)
-    X_true = _standardize_single(X=X, mu=mu_train, sigma=sg_train)
-    idx_true = np.array(range(len(X_true)))
-    return X_true, idx_true, mu_train, sg_train
+    X_true = lib.math.standardize(X=X, mu=mu_train, sigma=sigma_train)
+    idx_true = np.arange(len(X_true))
+    return X_true, idx_true, mu_train, sigma_train
 
 
 def _latest_model(model_dir, recency=1):
@@ -341,29 +336,8 @@ def _umap_embedding(features, embed_into_n_components, savename):
     return u
 
 
+@timeit
 @st.cache
-def _cluster_hdbscan(features, min_cluster_size, min_core_points):
-    """
-    Cluster points using HDBSCAN.
-
-    Args:
-        features (np.array)
-        min_cluster_size (int)
-        min_core_points (int)
-    """
-    clf = hdbscan.HDBSCAN(
-        prediction_data=True,
-        allow_single_cluster=False,
-        approx_min_span_tree=True,
-        cluster_selection_method="leaf",
-        min_samples=min_core_points,
-        min_cluster_size=min_cluster_size,
-        core_dist_n_jobs=-1,
-    )
-    labels = clf.fit_predict(features)
-    return labels
-
-
 def _cluster_kmeans(features, n_clusters):
     """
     Cluster points using K-means
@@ -372,9 +346,35 @@ def _cluster_kmeans(features, n_clusters):
         features (np.array):
         n_clusters (int):
     """
-    clf = KMeans(n_clusters=n_clusters, n_jobs=-1)
+    clf = MiniBatchKMeans(n_clusters=n_clusters)
     labels = clf.fit_predict(features)
-    return labels
+    centers = clf.cluster_centers_
+    return labels, centers
+
+
+@timeit
+@st.cache(suppress_st_warning=True)
+def _plot_kmeans_silhouette(X, min=1, max=100, step=10):
+    """
+    Calculates silhouette score for multiple values of kmeans
+    Args:
+        X (np.ndarray)
+        min (int)
+        max (int)
+        step (int)
+    """
+    rng = list(np.arange(min, max, step))
+
+    score = []
+    for n in tqdm(rng):
+        clf = KMeans(n_clusters=n, random_state=42, n_jobs=-1)
+        labels = clf.fit_predict(X)
+
+        score.append(silhouette_score(X, labels))
+
+    fig, ax = plt.subplots()
+    ax.plot(rng, score, "o-")
+    svg_write(fig)
 
 
 def _resample_traces(traces, length, normalize):
@@ -495,7 +495,8 @@ def _plot_explained_variance(explained_variance):
     svg_write(fig)
 
 
-def _plot_scatter(features, cluster_labels=None):
+@timeit
+def _plot_scatter(features, subsample, cluster_labels=None):
     """
     Plots lower dimensional embedding with predicted cluster labels.
 
@@ -503,44 +504,40 @@ def _plot_scatter(features, cluster_labels=None):
         features (np.ndarray)
         cluster_labels (np.ndarray or None)
     """
-    fig, ax = plt.subplots()
+    f, cl = features, cluster_labels
+    if subsample:
+        f, cl = sklearn.utils.resample(
+            f, cl, n_samples=subsample, replace=False
+        )
+    f0, f1 = f[:, 0], f[:, 1]
+
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1, projection="scatter_density")
 
     if cluster_labels is None:
-        ax.scatter(
-            features[:, 0], features[:, 1], color="black", s=10, alpha=0.1,
-        )
+        ax.scatter_density(f0, f1, color="black", alpha=0.1)
     else:
-        lmin = min(cluster_labels[cluster_labels != -1])
-        lmax = max(cluster_labels[cluster_labels != -1])
-
-        mids = []
-        for i in range(len(set(cluster_labels))):
-            emb_i = features[cluster_labels == i]
-            mids.append(np.mean(emb_i, axis=0))
+        lmin = min(cl[cl != -1])
+        lmax = max(cl[cl != -1])
 
         cmap = plt.get_cmap("magma", lmax - lmin + 1)
 
-        ax.scatter(
-            features[:, 0][cluster_labels == -1],
-            features[:, 1][cluster_labels == -1],
-            color="grey",
-            s=10,
-            alpha=0.1,
+        ax.scatter_density(
+            f0[cl != -1], f1[cl != -1], c=cl[cl != -1], cmap=cmap,
         )
+        # Try to plot outliers if calculated, else skip
+        try:
+            ax.scatter_density(
+                f0[cl == -1], f1[cl == -1], c=cl[cl == -1], cmap=cmap,
+            )
+        except ValueError:
+            pass
 
-        cax = ax.scatter(
-            features[:, 0][cluster_labels != -1],
-            features[:, 1][cluster_labels != -1],
-            c=cluster_labels[cluster_labels != -1],
-            cmap=cmap,
-            s=10,
-            alpha=0.8,
-        )
-        # fig.colorbar(cax, ax=ax, ticks=np.arange(lmin, lmax + 1))
-
-        for i, m in enumerate(mids):
+        for i in range(len(set(cl))):
+            fi = f[cl == i]
+            m = np.mean(fi, axis=0)
             ax.annotate(
-                xy=m[[0, 1]],
+                xy=m,
                 s=i,
                 bbox=dict(boxstyle="square", fc="w", ec="grey", alpha=0.9),
             )
@@ -667,49 +664,68 @@ def _plot_traces_preview(
     svg_write(fig)
 
 
-def _plot_mean_trace(
-    X, cluster_labels, cluster_lengths, percentages,
-):
+def _dendrogram_trace_plot(X, cluster_labels, cluster_centers):
+    """
+    Plots dendrogram (left) and mean traces (right)
+
+    Args:
+        X (np.ndarray)
+        cluster_labels (np.ndarray)
+        cluster_centers (np.ndarray)
+    """
+    n_timeseries = len(set(cluster_labels))
+
+    fig, axes = lib.plotting.dendrogram_ts_layout(n_timeseries=n_timeseries)
+
+    z = lib.math.hierachical_linkage(cluster_centers)
+    d = hierarchy.dendrogram(
+        z,
+        ax=axes[0],
+        orientation="left",
+        color_threshold=0,
+        above_threshold_color="black",
+    )
+    mean_trace_idx = np.array(list(reversed(d["ivl"])), dtype=int)
+
+    traces_groups = _resample_clustered_traces(
+        X=X, cluster_labels=cluster_labels, resample_length=150,
+    )
+
+    for idx in mean_trace_idx:
+        ax = axes[idx + 1]  # skip first (dendrogram)
+        traces = traces_groups[idx]
+        clrs = ["black", "red", "blue"]
+        channels = traces.shape[-1]
+        for c in range(channels):
+            t = traces[..., c]
+            lib.plotting.plot_timeseries_percentile(
+                t,
+                ax=ax,
+                color=clrs[c],
+                min_percentile=50 - 15,
+                max_percentile=50 + 15,
+                n_percentiles=10,
+            )
+    svg_write(fig)
+
+
+@st.cache
+def _resample_clustered_traces(X, cluster_labels, resample_length):
     """
     Plots mean and std of resampled traces for each cluster.
 
     Args:
         X (np.ndarray)
         cluster_labels (np.ndarray)
-        cluster_lengths (list of lists of int)
-        percentages (list of float)
     """
-    for ij in lib.utils.pairwise_range(cluster_lengths):
-        fig, axes = plt.subplots(ncols=2, figsize=(10, 5))
-
-        for ax, i in zip(axes, ij):
-            if i is not None:
-                (label_idx,) = np.where(cluster_labels == i)
-                resample_len = np.max(cluster_lengths[i])
-                traces = _resample_traces(
-                    X[label_idx], length=resample_len, normalize=True,
-                )
-
-                ax.set_xlim(0, resample_len)
-                ax.set_xticks(())
-                ax.set_yticks(())
-                ax.set_title("{} ({:.1f} %)".format(i, percentages[i]))
-
-                clrs = ["black", "red"]
-                channels = traces.shape[-1]
-                for c in range(channels):
-                    t = traces[..., c]
-                    lib.plotting.plot_timeseries_percentile(
-                        t,
-                        ax=ax,
-                        color=clrs[c],
-                        min_percentile=50 - 15,
-                        max_percentile=50 + 15,
-                        n_percentiles=10,
-                    )
-            else:
-                fig.delaxes(ax)
-        svg_write(fig)
+    traces = []
+    for i in range(len(set(cluster_labels))):
+        (label_idx,) = np.where(cluster_labels == i)
+        t = _resample_traces(
+            X[label_idx], length=resample_length, normalize=True,
+        )
+        traces.append(t)
+    return traces
 
 
 def _plot_length_dist(cluster_lengths, colors, single=False):
@@ -788,9 +804,14 @@ def main():
     """
     Main function. Use return to stop script execution.
     """
+    # empty line to make it apparent where the execution
+    # starts when debugging
+    print()
     np.random.seed(42)
 
-    model_dir = sorted(glob(os.path.join(lib.globals.models_dir, "*")))
+    model_dir = sorted(
+        glob(os.path.join(lib.globals.models_dir, "*")), reverse=True
+    )
     data_dir = sorted(
         glob(os.path.join(lib.globals.data_preprocessed_dir, "*.npz"))
     )
@@ -836,8 +857,10 @@ def main():
     st_selected_data_name = os.path.basename(st_selected_data_path)
 
     X = _load_npz(st_selected_data_path)
+    _, _, mu_train, sg_train = _load_train_test_info(path=st_model_path)
+
     X_true, idx_true, mu_train, sg_train = _prepare_data(
-        X=X, model_dir=st_model_path,
+        X=X, mu_train=mu_train, sigma_train=sg_train
     )
 
     encoding_savename = model_name + "___pred__" + st_selected_data_name
@@ -861,7 +884,7 @@ def main():
                 for name in multi_index_names:
                     st.code(name)
     except FileNotFoundError:
-        df = None
+        pass
 
     cluster_savename = (
         model_name + "___clust__" + st_selected_data_name + "__cidx.h5"
@@ -899,36 +922,18 @@ def main():
     )
     min_len_labels[len_above_idx] = 1
 
-    st_clust_type = st.sidebar.radio(options=["K-means", "HDBSCAN"], index=0, label = "Clustering method")
-    if st_clust_type == "K-means":
-        st_clust_n = st.sidebar.number_input(
-            label="Number of clusters", value=10
-        )
+    st_clust_n = st.sidebar.number_input(label="Number of clusters", value=10)
 
-        clabels_w_outliers = _cluster_kmeans(
-            features=encodings, n_clusters=st_clust_n
-        )
+    clabels, centers = _cluster_kmeans(
+        features=encodings, n_clusters=st_clust_n
+    )
 
-    elif st_clust_type == "HDBSCAN":
-        st_clust_min_size = st.sidebar.number_input(
-            label="Min cluster size", value=500
-        )
-        st_clust_min_samples = st.sidebar.number_input(
-            label="Min number of core points (higher value means more conservative inclusion)",
-            value=500,
-        )
+    _dendrogram_trace_plot(
+        X=X_true, cluster_labels=clabels, cluster_centers=centers
+    )
 
-        clabels_w_outliers = _cluster_hdbscan(
-            features=encodings,
-            min_cluster_size=st_clust_min_size,
-            min_core_points=st_clust_min_samples,
-        )
-    else:
-        raise NotImplementedError
-
-    # clabels_w_outliers, _ = lib.plotting.rearrange_labels(
-    #     _pca(encodings, embed_into_n_components = 1)[0], cluster_labels=clabels_w_outliers
-    # )
+    if st.button("Run K-means silhouette test"):
+        _plot_kmeans_silhouette(X=encodings, min=10, max=200, step=20)
 
     st.subheader("Lengths")
     _plot_length_dist(
@@ -938,22 +943,16 @@ def main():
     )
 
     st.subheader("UMAP displaying length cutoff filter")
-    _plot_scatter(features=umap_enc_orig, cluster_labels=min_len_labels)
+    _plot_scatter(
+        features=umap_enc_orig, cluster_labels=min_len_labels, subsample=False
+    )
 
     st.subheader("PCA after clustering on filtered")
     pca_raw, _ = _pca(encodings, embed_into_n_components=2)
-    _plot_scatter(features=pca_raw, cluster_labels=clabels_w_outliers)
+    _plot_scatter(features=pca_raw, cluster_labels=clabels, subsample=False)
 
     st.subheader("UMAP after clustering on filtered")
-    _plot_scatter(features=umap_enc, cluster_labels=clabels_w_outliers)
-
-    # Remove HDBSCAN outliers before any further analysis
-    (clabels_idx_idx,) = np.where(clabels_w_outliers != -1)
-
-    (X_true, X_pred, encodings, mse, clabels, indices,) = get_index(
-        (X_true, X_pred, encodings, mse, clabels_w_outliers, indices,),
-        index=clabels_idx_idx,
-    )
+    _plot_scatter(features=umap_enc, cluster_labels=clabels, subsample=False)
 
     n_clusters = len(set(clabels))
     len_X_true_postfilter = len(X_true)
@@ -972,7 +971,7 @@ def main():
         )
     )
 
-    st_nrows = st.sidebar.slider(
+    st_nrows = st.sidebar.number_input(
         min_value=2,
         max_value=6,
         value=5,
@@ -980,7 +979,7 @@ def main():
         key="st_n_rows",
     )
 
-    st_ncols = st.sidebar.slider(
+    st_ncols = st.sidebar.number_input(
         min_value=2,
         max_value=6,
         value=5,
@@ -1003,11 +1002,14 @@ def main():
     ):
         return
 
+    st.write(len(indices))
+    st.write(len(X_true))
+
     # Iterate over every cluster, plot samples and pick up relevant statistics
     lengths_in_cluster, percentage_of_samples = [], []
     cluster_indexer = []
-    for i in range(len(set(clabels))):
-        (cidx,) = np.where(clabels == i)
+    for idx in range(len(set(clabels))):
+        (cidx,) = np.where(clabels == idx)
         percentage = (len(cidx) / len_X_true_postfilter) * 100
 
         # Index specifics for each cluster label
@@ -1018,7 +1020,7 @@ def main():
         )
 
         cluster_indexer.append(
-            pd.DataFrame({"cluster": [i] * len(indices_i), "id": indices_i})
+            pd.DataFrame({"cluster": [idx] * len(indices_i), "id": indices_i})
         )
 
         percentage_of_samples.append(percentage)
@@ -1026,7 +1028,7 @@ def main():
 
         st.subheader(
             "Predictions for {} (N = {} ({:.1f} %))".format(
-                i, len(X_true_i), percentage
+                idx, len(X_true_i), percentage
             )
         )
         if X_pred_i[0].shape[-1] == 2:
@@ -1050,7 +1052,7 @@ def main():
             separate_y_ax=st_separate_y,
             mu=mu_train,
             sg=sg_train,
-            colors=["black", "red"],
+            colors=["black", "red", "blue"],
         )
 
     cluster_indexer = pd.concat(cluster_indexer, sort=False)
@@ -1062,14 +1064,6 @@ def main():
     st.subheader("Cluster length distributions")
     _plot_length_dist(
         cluster_lengths=lengths_in_cluster, colors=colormap,
-    )
-
-    st.subheader("Mean (resampled) **true** traces in each cluster")
-    _plot_mean_trace(
-        X=X_true,
-        cluster_labels=clabels,
-        cluster_lengths=lengths_in_cluster,
-        percentages=percentage_of_samples,
     )
 
 

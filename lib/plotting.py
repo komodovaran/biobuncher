@@ -199,7 +199,6 @@ def plot_timeseries_percentile(timeseries, ax, n_percentiles = 10, min_percentil
     # Create new colormap
     cmap = ListedColormap(cmap)
 
-
     percentiles = np.linspace(min_percentile, max_percentile, n_percentiles)
     length = timeseries.shape[1]
 
@@ -248,3 +247,44 @@ def rearrange_labels(X, cluster_labels, sort_on_column=0):
     # replace labels with their new variants in the array of cluster labels
     np.put(cluster_labels, labels, labels_new)
     return cluster_labels, ctrs_new
+
+
+def despine_ax(ax, top = True, right = True, left = True, bottom = True):
+    """
+    Removes spine from ax.
+    """
+    if top:
+        ax.spines['top'].set_visible(False)
+    if right:
+        ax.spines['right'].set_visible(False)
+    if left:
+        ax.spines['left'].set_visible(False)
+    if bottom:
+        ax.spines['bottom'].set_visible(False)
+
+
+def dendrogram_ts_layout(n_timeseries):
+    """
+    Multi-layout plot for a dendrogram and timeseries. Returns figure and axes.
+    axes[0] is the dendrogram. The rest is for timeseries, top to bottom.
+
+    Args:
+        n_timeseries (int)
+    """
+    fig = plt.figure(figsize = (5, 25))
+    outer_grid = fig.add_gridspec(nrows = 1, ncols = 2, wspace=0.2, hspace=0.2)
+
+    outer_grid[0].subgridspec(1, 1, wspace = 0.0, hspace = 0.0)
+    fig.add_subplot(outer_grid[0])
+
+    ax_right = outer_grid[1].subgridspec(n_timeseries, 1, wspace=0.0, hspace=0.0)
+    for i in range(n_timeseries):
+        ax = fig.add_subplot(ax_right[i])
+        ax.set_xticks(())
+        ax.set_yticks(())
+        despine_ax(ax)
+        fig.add_subplot(ax)
+
+    axes = fig.get_axes()
+    despine_ax(axes[0], bottom = False)
+    return fig, axes
