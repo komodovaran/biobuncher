@@ -3,18 +3,14 @@ import re
 from glob import glob
 from typing import Iterable
 
-import hdbscan
 import matplotlib.pyplot as plt
-
 # noinspection PyUnresolvedReferences
 import mpl_scatter_density
 import numpy as np
 import pandas as pd
 import parmap
-
 import seaborn as sns
 import sklearn.manifold
-from scipy.cluster import hierarchy
 import sklearn.metrics
 import sklearn.mixture
 import sklearn.model_selection
@@ -24,10 +20,10 @@ import sklearn.utils.random
 import streamlit as st
 import tensorflow as tf
 import umap.umap_ as umap
-
 from matplotlib.ticker import MaxNLocator
-from sklearn.cluster import KMeans, MiniBatchKMeans
-from sklearn.metrics import silhouette_score
+from scipy.cluster import hierarchy
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.mixture import GaussianMixture
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
@@ -219,7 +215,8 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
         latest_model_path = _latest_model(model_path)
 
         autoencoder = keras.models.load_model(
-            latest_model_path, custom_objects={"gelu": gelu}
+            latest_model_path, custom_objects={"gelu": gelu,
+                                               "f1_m": lib.math.f1_m}
         )
 
         encoder = _get_encoding_layer(autoencoder)
@@ -260,12 +257,17 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
             fi = encoder.predict_on_batch(_xi_true)
 
             # Predict reconstruction
-            xi_pred = autoencoder.predict_on_batch(_xi_true)
+            try:
+                xi_pred = autoencoder.predict_on_batch(_xi_true)
 
-            # Calculate error of reconstruction
-            ei = lib.math.mean_squared_error(
-                xi_true.numpy(), xi_pred.numpy(), axis=(1, 2)
-            )
+                # Calculate error of reconstruction
+                ei = lib.math.mean_squared_error(
+                    xi_true.numpy(), xi_pred.numpy(), axis=(1, 2)
+                )
+            except ValueError:
+                xi_pred = _xi_true
+                ei = np.zeros(xi_true.shape[0])
+
 
             # Make sure they're numpy arrays now and not EagerTensors!
             X_true.extend(np.array(xi_true))
@@ -319,7 +321,6 @@ def _umap_embedding(features, embed_into_n_components, savename):
         embed_into_n_components (int)
     """
     savename = os.path.join(lib.globals.umap_dir, savename)
-
     try:
         u = np.load(savename, allow_pickle=True)["umap"]
     except FileNotFoundError:
@@ -343,38 +344,28 @@ def _cluster_kmeans(features, n_clusters):
     Cluster points using K-means
 
     Args:
-        features (np.array):
-        n_clusters (int):
+        features (np.array)
+        n_clusters (int)
     """
     clf = MiniBatchKMeans(n_clusters=n_clusters)
     labels = clf.fit_predict(features)
     centers = clf.cluster_centers_
     return labels, centers
 
-
 @timeit
-@st.cache(suppress_st_warning=True)
-def _plot_kmeans_silhouette(X, min=1, max=100, step=10):
+@st.cache
+def _cluster_gmm(features, n_clusters):
     """
-    Calculates silhouette score for multiple values of kmeans
+    Cluster points using Gaussian Mixture Model
+
     Args:
-        X (np.ndarray)
-        min (int)
-        max (int)
-        step (int)
+        features (np.array)
+        n_clusters (int)
     """
-    rng = list(np.arange(min, max, step))
-
-    score = []
-    for n in tqdm(rng):
-        clf = KMeans(n_clusters=n, random_state=42, n_jobs=-1)
-        labels = clf.fit_predict(X)
-
-        score.append(silhouette_score(X, labels))
-
-    fig, ax = plt.subplots()
-    ax.plot(rng, score, "o-")
-    svg_write(fig)
+    clf = GaussianMixture(n_components = n_clusters, covariance_type = "full")
+    labels = clf.fit_predict(features)
+    centers = clf.means_
+    return labels, centers
 
 
 def _resample_traces(traces, length, normalize):
@@ -514,20 +505,23 @@ def _plot_scatter(features, subsample, cluster_labels=None):
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1, projection="scatter_density")
 
+    if len(f0) > 1000:
+        ax.scatter = ax.scatter_density
+
     if cluster_labels is None:
-        ax.scatter_density(f0, f1, color="black", alpha=0.1)
+        ax.scatter(f0, f1, color="black", alpha=0.1)
     else:
         lmin = min(cl[cl != -1])
         lmax = max(cl[cl != -1])
 
         cmap = plt.get_cmap("magma", lmax - lmin + 1)
 
-        ax.scatter_density(
+        ax.scatter(
             f0[cl != -1], f1[cl != -1], c=cl[cl != -1], cmap=cmap,
         )
         # Try to plot outliers if calculated, else skip
         try:
-            ax.scatter_density(
+            ax.scatter(
                 f0[cl == -1], f1[cl == -1], c=cl[cl == -1], cmap=cmap,
             )
         except ValueError:
@@ -648,22 +642,24 @@ def _plot_traces_preview(
                 ax.set_yticks(())
 
         # Works only for 2C clathrin/auxilin traces
-        if xi_pred.shape[-1] == 2:
-            mid = np.mean(xi_pred[:, 1])
-            dev = np.std(xi_pred[:, 1])
-            cutoff = mid + 2 * dev
-            is_outside = xi_pred[:, 1] > cutoff
-            ax.axhline(mid, color="blue", ls="-")
-            ax.axhline(cutoff, color="blue", ls=":")
-            if np.sum(is_outside) >= 3:
-                lib.plotting.mark_trues(
-                    is_outside, color="red", alpha=0.1, ax=ax
-                )
+        # if xi_pred.shape[-1] == 2:
+        #     mid = np.mean(xi_pred[:, 1])
+        #     dev = np.std(xi_pred[:, 1])
+        #     cutoff = mid + 2 * dev
+        #     is_outside = xi_pred[:, 1] > cutoff
+        #     ax.axhline(mid, color="blue", ls="-")
+        #     ax.axhline(cutoff, color="blue", ls=":")
+        #     if np.sum(is_outside) >= 3:
+        #         lib.plotting.mark_trues(
+        #             is_outside, color="red", alpha=0.1, ax=ax
+        #         )
 
     plt.tight_layout()
     svg_write(fig)
 
 
+@timeit
+@st.cache(suppress_st_warning=True)
 def _dendrogram_trace_plot(X, cluster_labels, cluster_centers):
     """
     Plots dendrogram (left) and mean traces (right)
@@ -755,6 +751,7 @@ def _plot_length_dist(cluster_lengths, colors, single=False):
                         color=colors[i],
                         ax=ax,
                     )
+                    plt.semilogy()
                     ax.set_xlabel("Length")
                     ax.set_xlim(0, 200)
                     ax.set_yticks(())
@@ -897,7 +894,6 @@ def main():
         features=encodings, embed_into_n_components=2, savename=umap_savename
     )
     umap_enc_orig = umap_enc.copy()
-    encodings_orig = encodings.copy()
 
     # Original number of samples, before filtering
     len_X_true_prefilter = len(X_true)
@@ -922,18 +918,13 @@ def main():
     )
     min_len_labels[len_above_idx] = 1
 
-    st_clust_n = st.sidebar.number_input(label="Number of clusters", value=10)
+    st_clust_n = st.sidebar.number_input(label="Number of clusters", value=3)
 
-    clabels, centers = _cluster_kmeans(
-        features=encodings, n_clusters=st_clust_n
-    )
+    pca, explained_var = _pca(encodings, embed_into_n_components=4)
+    _plot_explained_variance(explained_var)
 
-    _dendrogram_trace_plot(
-        X=X_true, cluster_labels=clabels, cluster_centers=centers
-    )
-
-    if st.button("Run K-means silhouette test"):
-        _plot_kmeans_silhouette(X=encodings, min=10, max=200, step=20)
+    # clabels, centers = _cluster_kmeans(features=pca, n_clusters=st_clust_n)
+    clabels, centers = _cluster_gmm(features = pca, n_clusters = st_clust_n)
 
     st.subheader("Lengths")
     _plot_length_dist(
@@ -941,15 +932,14 @@ def main():
         colors=lib.plotting.get_colors("viridis", n_colors=1),
         single=True,
     )
-
     st.subheader("UMAP displaying length cutoff filter")
     _plot_scatter(
         features=umap_enc_orig, cluster_labels=min_len_labels, subsample=False
     )
-
     st.subheader("PCA after clustering on filtered")
-    pca_raw, _ = _pca(encodings, embed_into_n_components=2)
-    _plot_scatter(features=pca_raw, cluster_labels=clabels, subsample=False)
+    _plot_scatter(
+        features=pca[:, [0, 1]], cluster_labels=clabels, subsample=False
+    )
 
     st.subheader("UMAP after clustering on filtered")
     _plot_scatter(features=umap_enc, cluster_labels=clabels, subsample=False)
@@ -1002,8 +992,10 @@ def main():
     ):
         return
 
-    st.write(len(indices))
-    st.write(len(X_true))
+    st.subheader("Euclidian distance relationship")
+    _dendrogram_trace_plot(
+        X=X_true, cluster_labels=clabels, cluster_centers=centers
+    )
 
     # Iterate over every cluster, plot samples and pick up relevant statistics
     lengths_in_cluster, percentage_of_samples = [], []
@@ -1031,8 +1023,8 @@ def main():
                 idx, len(X_true_i), percentage
             )
         )
-        if X_pred_i[0].shape[-1] == 2:
-            _clath_aux_peakfinder(X_true_i)
+        # if X_pred_i[0].shape[-1] == 2:
+        #     _clath_aux_peakfinder(X_true_i)
 
         if len(X_true) < st_nrows * st_ncols:
             nrows = len(X_true)

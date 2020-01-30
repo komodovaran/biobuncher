@@ -7,7 +7,6 @@ import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
 import tensorflow.keras.utils
-from imblearn.under_sampling import RandomUnderSampler
 
 import lib.math
 import lib.models
@@ -49,19 +48,12 @@ def preprocess(X, y, n_features, max_batch_size, train_size):
     ) = sklearn.model_selection.train_test_split(X, idx, train_size=train_size)
 
     if y is not None:
-        y = y.reshape(-1, 1)
         y_train, y_test = y[idx_train, ...], y[idx_test, ...]
-
-        # ru = RandomUnderSampler()
-        # _, y_train = ru.fit_resample(X = y_train, y = y_train)
-        # selected = ru.sample_indices_
-        # X_train = X_train[selected]
 
         y_train, y_test = [
             tensorflow.keras.utils.to_categorical(y, num_classes = 2)
             for y in (y_train, y_test)
         ]
-
     else:
         y_train, y_test = None, None
 
@@ -101,8 +93,7 @@ def preprocess(X, y, n_features, max_batch_size, train_size):
 if __name__ == "__main__":
     MODELF = (lib.models.lstm_classifier,)
 
-    INPUT_X = ("data/preprocessed/combined_filt5_var.npz",)
-    INPUT_Y = ("results/saved_labels/combined_filt5_var__clust_[2].npz",)
+    INPUT_X = ("data/preprocessed/combined_filt20_var.npz",)
 
     N_TIMESTEPS = None
     EARLY_STOPPING = 3
@@ -117,25 +108,32 @@ if __name__ == "__main__":
     # Add iterables here
     for (
         _input_x,
-        _input_y,
         _batch_size,
         _latent_dim,
         _modelf,
         _keep_only,
     ) in itertools.product(
-        INPUT_X, INPUT_Y, BATCH_SIZE, LATENT_DIM, MODELF, KEEP_ONLY,
+        INPUT_X, BATCH_SIZE, LATENT_DIM, MODELF, KEEP_ONLY,
     ):
 
-        X_raw = _get_data(_input_x)
-        y = _get_labels(_input_y)
+        X_true = _get_data(_input_x)
+        y_true = np.ones(len(X_true))
 
-        if _keep_only is not None:
-            X_raw = np.array([x[:, _keep_only].reshape(-1, 1) for x in X_raw])
+        X_flipped = [np.flip(xi, axis = 0) for xi in X_true]
+        y_flipped = np.zeros(len(X_flipped))
 
-        N_FEATURES = X_raw[0].shape[-1]
+        X = np.concatenate((X_true, X_flipped))
+        y = np.concatenate((y_true, y_flipped))
+        y = y.reshape(-1, 1)
 
-        # Pre-define loss so it gets compiled in the graph
-        KL_LOSS = tf.Variable(0.0)
+        # fig, ax = plt.subplots(nrows = 2)
+        # ax[0].plot(X_true[3])
+        # ax[1].plot(X_flipped[3])
+        # plt.show()
+        # print()
+        # quit()
+
+        N_FEATURES = X[0].shape[-1]
 
         build_args = [
             N_TIMESTEPS,
@@ -154,7 +152,7 @@ if __name__ == "__main__":
             )  # Keep only one of the features
 
         data, lengths, info = preprocess(
-            X=X_raw,
+            X=X,
             y=y,
             n_features=N_FEATURES,
             max_batch_size=_batch_size,

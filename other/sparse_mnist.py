@@ -42,11 +42,11 @@ if __name__ == "__main__":
 
     outputs = Dense(x_train.shape[1], activation = 'sigmoid')(k_sparse)
 
-    # ae1 = Model(inputs, outputs)
-    # ae1.compile('adamax', 'mse')
-    # ae1.fit(x_train, x_train, validation_data = (x_val, x_val), epochs = epochs,
-    #         callbacks = [UpdateSparsityLevel(),
-    #                              ModelCheckpoint(filepath = "test.h5", save_best_only = True, save_weights_only = True)])
+    ae1 = Model(inputs, outputs)
+    ae1.compile('adamax', 'mse')
+    ae1.fit(x_train, x_train, validation_data = (x_val, x_val), epochs = epochs,
+            callbacks = [UpdateSparsityLevel(),
+                         ModelCheckpoint(filepath = "test.h5", save_best_only = True, save_weights_only = True)])
 
     ae2 = Model(inputs, outputs)
     ae2.load_weights("test.h5")

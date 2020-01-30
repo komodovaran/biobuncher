@@ -33,7 +33,7 @@ def generate_fake_tracks(n_classes=3):
         data.append(x)
 
     data = np.array(data)
-    np.savez("data/preprocessed/fake_tracks.npz", data=data)
+    # np.savez("data/preprocessed/fake_tracks.npz", data=data)
     return data
 
 

@@ -20,6 +20,8 @@ from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.regularizers import L1L2
 
 # define Tensorflow probability distributions
+from lib.math import f1_m
+
 Bernoulli = tfp.distributions.Bernoulli
 OneHotCategorical = tfp.distributions.OneHotCategorical
 RelaxedOneHotCategorical = tfp.distributions.RelaxedOneHotCategorical
@@ -30,27 +32,6 @@ from lib.tfcustom import (
     VariableRepeatVector,
     gelu,
 )
-
-
-def recall_m(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-
-
-def precision_m(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-
-
-def f1_m(y_true, y_pred):
-    precision = precision_m(y_true, y_pred)
-    recall = recall_m(y_true, y_pred)
-    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
-
 
 
 def lstm_autoencoder(n_timesteps, n_features, latent_dim, activation="elu"):
@@ -191,6 +172,7 @@ def lstm_vae_bidir(
     # sample vector from the latent distribution
     z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
 
+
     # Repeat so it fits into LSTM
     xd = VariableRepeatVector()([inputs, z])
     xd = Bidirectional(
@@ -213,7 +195,6 @@ def lstm_cat_vae(
     n_features,
     intermediate_dim,
     activation=None,
-    num_dist=1,
     z_dim=2,
 ):
     """
@@ -225,7 +206,6 @@ def lstm_cat_vae(
 
     def reparameterize(logits_z):
         tau = 1  # temperature
-
         # generate latent sample using Gumbel-Softmax for categorical variables
         z = RelaxedOneHotCategorical(tau, logits_z).sample()
         z_hard = tf.cast(tf.one_hot(tf.argmax(z, -1), z_dim), z.dtype)
@@ -322,7 +302,7 @@ def lstm_classifier(n_timesteps, n_features, intermediate_dim):
     Simple bidirectional LSTM classifier
     """
     inputs = Input(shape=(n_timesteps, n_features))
-    x = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=False))(
+    x = Bidirectional(CuDNNLSTM(intermediate_dim, return_sequences=False, name = "encoder"))(
         inputs
     )
     x = Dropout(0.4)(x)

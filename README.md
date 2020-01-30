@@ -1,9 +1,12 @@
 ### Setup (tested on linux only!)
 1. Install conda and a conda environment ("what?" "how?" - Google it!)
-2. Install Tensorflow with `conda install tensorflow-gpu`. This **must** be installed as the first package. The contents
-here are only tested with version 2.0, but it should work on later ones as well. If done correctly, check 
+2. Install Tensorflow with `conda install tensorflow-gpu=2.0.0`. This **must** be installed as the first package. The contents
+here are only tested with version 2.0, but it should work on later ones as well. If done correctly, check the script at 
 `/checks/test_tensorflow_gpu_is_working.py`
-3. Install everything else with `pip install requirements.txt -r`
+3. Install the rest of the conda requirements with
+ 
+````conda install -f -y -q --name py37 -c conda-forge --file conda_requirements.txt````
+3. Install everything else with `pip install -r requirements.txt`
 4. If Tensorflow is installed correctly, run `checks/test_tensorflow_gpu_is_working`. If the device is correctly set up,
 Tensorflow is working and you're good to go!
 
@@ -33,10 +36,10 @@ or for combined dataframes `['source', 'file', 'particle']`. To combine datafram
 
 ### Scripts to run, step by step
 1. `get_cme_tracks.py` to convert from CME `.mat` files to a dataframe.
-2. `prepare_data.py` to filter out too short data (set it low initially to be safe).
-3. `autoencoder_train.py` to train a model on the data.
-4. `st_predict.py` to predict and plot the data. This also requires training a 
-UMAP model, which can take ~10 min for each refresh.
+2. `prepare_data.py` to filter out too short data (set it low initially to be safe), traces that would be cut by the
+tracking start/end, and 
+3. `train_autoencoder.py` to train a model on the data.
+4. `st_predict.py` to predict and plot the data. Initially, a UMAP model is trained.
 5. `st_eval.py` once clustering is done and you want to explore the data.
 
 ### Things to avoid
@@ -45,6 +48,18 @@ In order to preserve group ordering, the original dataframes must be run through
  because this messes up the internal group ordering that was first established when creating the combined dataframe.
 
 ### Troubleshooting
+#### Packages are missing
+If any scripts raise complaints about packages I may have missed, they can be installed with
+`pip install packagename`
+
+
+#### The interface is slow!
+Streamlit was never designed for super heavy computations. The underlying calculations are as fast as possible
+but due to the way Streamlit is set up, it appears to be slow. Rest assured, after you put in the parameters,
+Streamlit will get there eventually. Just don't touch anything until it's done, because the script will re-run
+whenever any parameters are changed.
+
+
 #### What to do if Streamlit doesn't finish running:
 
 1. Hit `Ctrl+Z` in the terminal

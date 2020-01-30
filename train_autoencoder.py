@@ -7,6 +7,7 @@ import seaborn as sns
 import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
+import parmap
 
 import lib.math
 import lib.models
@@ -77,7 +78,7 @@ def _preprocess(X, n_features, max_batch_size, train_size):
 if __name__ == "__main__":
     MODELF = (lib.models.lstm_vae_bidir,)
 
-    INPUT_NPZ = ("data/preprocessed/saved_c12.npz",)
+    INPUT_NPZ = ("data/preprocessed/fake_tracks_type_3.npz",)
 
     N_TIMESTEPS = None
     EARLY_STOPPING = 3
@@ -92,10 +93,10 @@ if __name__ == "__main__":
     # Best results have been found with keeping latent dim high and zdim low
     LATENT_DIM = (128,)
     ACTIVATION = (None,)
-    ZDIM = (4,)
-    EPS = (0.1,)
+    ZDIM = (16,)
+    EPS = (1,)
     KEEP_ONLY = (None,)
-    ANNEAL_TIME = (20,)
+    ANNEAL_TIME = (1, 5, 999,)
 
     # Add iterables here
     for (
@@ -122,6 +123,15 @@ if __name__ == "__main__":
 
         X_raw = _get_data(_input_npz)
 
+
+        def process(xi):
+            ts = lib.math.resample_timeseries(xi, new_length = 32)
+            return ts
+
+        mp_results = parmap.map(process, X_raw)
+        data = np.array(mp_results)
+
+
         if _keep_only is not None:
             X_raw = np.array([x[:, _keep_only].reshape(-1, 1) for x in X_raw])
 
@@ -147,6 +157,7 @@ if __name__ == "__main__":
         TAG += "_bat={}".format(_batch_size)  # batch size
         TAG += "_eps={}_zdim={}_anneal={}".format(
             _eps, _zdim, _anneal_time
+
         )  # vae parameters
         if _keep_only is not None:
             TAG += "_single={}".format(

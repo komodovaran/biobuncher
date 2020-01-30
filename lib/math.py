@@ -6,6 +6,7 @@ from scipy import fftpack
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 from sklearn.metrics.pairwise import euclidean_distances
+from tensorflow_core.python.keras import backend as K
 from tqdm import tqdm
 
 from lib.utils import est_proc, timeit
@@ -516,3 +517,23 @@ def hierachical_linkage(points):
     condensed_dist = distance.squareform(square_distance_mat)
     z = hierarchy.linkage(condensed_dist, method = "single", metric = "euclidean")
     return z
+
+
+def recall_m(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
+
+
+def precision_m(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
+
+
+def f1_m(y_true, y_pred):
+    precision = precision_m(y_true, y_pred)
+    recall = recall_m(y_true, y_pred)
+    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
