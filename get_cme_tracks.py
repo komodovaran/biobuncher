@@ -58,17 +58,15 @@ def cme_tracks_to_pandas(mat_path, rm_n_parent_dir=4):
 
 def main(names, input, output):
     for name in names:
-        input = input.format(name)
-        output = output.format(name)
-
-        print(input)
+        _input = input.format(name)
+        _output = output.format(name)
 
         experiment_name = (
-            input.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
+            _input.split("/")[-3].replace(" ", "_").replace("-", "_").upper()
         )
 
         print("Processed experiment search string: ", experiment_name)
-        files = sorted(glob(input, recursive=True))
+        files = sorted(glob(_input, recursive=True))
         print("\nFound files:")
         [print(f) for f in files]
         print()
@@ -92,7 +90,7 @@ def main(names, input, output):
         print("Number of files in df: {}".format(len(df["file"].unique())))
 
         # ALl traces
-        df.to_hdf(output, key="df")
+        df.to_hdf(_output, key="df")
 
 
 if __name__ == "__main__":
