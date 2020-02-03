@@ -8,6 +8,7 @@ import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
 import parmap
+from tqdm import tqdm
 
 import lib.math
 import lib.models
@@ -78,7 +79,7 @@ def _preprocess(X, n_features, max_batch_size, train_size):
 if __name__ == "__main__":
     MODELF = (lib.models.lstm_vae_bidir,)
 
-    INPUT_NPZ = ("data/preprocessed/fake_tracks_type_3.npz",)
+    INPUT_NPZ = ("data/preprocessed/combined_filt5_var.npz",)
 
     N_TIMESTEPS = None
     EARLY_STOPPING = 3
@@ -93,10 +94,10 @@ if __name__ == "__main__":
     # Best results have been found with keeping latent dim high and zdim low
     LATENT_DIM = (128,)
     ACTIVATION = (None,)
-    ZDIM = (16,)
-    EPS = (1,)
+    ZDIM = (8, 16,)
+    EPS = (0.1, 1,)
     KEEP_ONLY = (None,)
-    ANNEAL_TIME = (1, 5, 999,)
+    ANNEAL_TIME = (1, 5, 20)
 
     # Add iterables here
     for (
@@ -122,15 +123,6 @@ if __name__ == "__main__":
     ):
 
         X_raw = _get_data(_input_npz)
-
-
-        def process(xi):
-            ts = lib.math.resample_timeseries(xi, new_length = 32)
-            return ts
-
-        mp_results = parmap.map(process, X_raw)
-        data = np.array(mp_results)
-
 
         if _keep_only is not None:
             X_raw = np.array([x[:, _keep_only].reshape(-1, 1) for x in X_raw])

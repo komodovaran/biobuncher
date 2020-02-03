@@ -12,15 +12,16 @@ def _filter(args):
     Parallel filter function
     """
     _, group = args
-    check1 = group["t"].values[0] == FIRST_FRAME  # check that it's not first
-    check2 = group["t"].values[-1] == LAST_FRAME  # or last frame
-    check3 = (
-        len(group) >= LAST_FRAME
-    )  # check that it's not longer than maximum length
-    check4 = len(group) <= MIN_LEN  # check that it's longer than minimum
-    if any(
-        [check1, check2, check3, check4]
-    ):  # if any checks fail, discard trace
+    # check that it's not first
+    check1 = group["f"].values[0] == FIRST_FRAME
+    # or last frame
+    check2 = group["f"].values[-1] == LAST_FRAME
+    # check that it's not longer than maximum length
+    check3 = len(group) >= LAST_FRAME
+    # check that it's longer than minimum
+    check4 = len(group) <= MIN_LEN
+    # if any checks fail, discard trace
+    if any([check1, check2, check3, check4]):
         return None
     else:
         return group

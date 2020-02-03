@@ -16,10 +16,8 @@ if __name__ == "__main__":
     x_train, y_train = shuffle(x_train, y_train, random_state = 1)
     x_test, y_test = shuffle(x_test, y_test, random_state = 1)
 
-
     def process(x):
         return x.reshape(x.shape[0], x.shape[1] ** 2) / 255
-
 
     x_train = process(x_train)
     x_test = process(x_test)
@@ -35,11 +33,8 @@ if __name__ == "__main__":
 
     # Build the k-sparse autoencoder
     inputs = Input((x_train.shape[1],))
-    x = Dense(embedding_size, activation = "relu")(inputs)
-    x = Dense(embedding_size, activation = "relu")(x)
-    k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(x)
-    x = Dense(embedding_size, activation = "relu")(k_sparse)
-
+    h = Dense(embedding_size, activation = 'sigmoid')(inputs)
+    k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(h)
     outputs = Dense(x_train.shape[1], activation = 'sigmoid')(k_sparse)
 
     ae1 = Model(inputs, outputs)

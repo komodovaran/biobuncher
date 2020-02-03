@@ -1,18 +1,29 @@
 ### Setup (tested on linux only!)
-1. Install conda and a conda environment ("what?" "how?" - Google it!)
-2. Install Tensorflow with `conda install tensorflow-gpu=2.0.0`. This **must** be installed as the first package. The contents
-here are only tested with version 2.0, but it should work on later ones as well. If done correctly, check the script at 
-`/checks/test_tensorflow_gpu_is_working.py`
-3. Install the rest of the conda requirements with
- 
-````conda install -f -y -q --name py37 -c conda-forge --file conda_requirements.txt````
-3. Install everything else with `pip install -r requirements.txt`
-4. If Tensorflow is installed correctly, run `checks/test_tensorflow_gpu_is_working`. If the device is correctly set up,
+1. Install conda and a conda environment. Conda installation instructions for
+Linux can be found on the website, as well as how to create an environment.
+2. Install Tensorflow with `conda install tensorflow-gpu=2.0.0`. This **must**
+be installed as the first package. The contents here are only tested with 
+version 2.0, but it should work on later ones as well. If done correctly,
+check the script at  `/checks/test_tensorflow_gpu_is_working.py`
+3. Install the rest of the conda requirements with   
+````
+conda install -f -y -q --namepy37 -c conda-forge --file conda_requirements.txt
+````
+4. Install everything else with `pip install -r requirements.txt`
+5. If Tensorflow is installed correctly, run 
+`checks/test_tensorflow_gpu_is_working`. If the device is correctly set up,
 Tensorflow is working and you're good to go!
+6. Conda and pip don't talk together, and this breaks some of the package
+installations. If for some reason a package was not installed, try running a 
+script until you hit a `ModuleNotFound: no module named name_of_package` error,
+and try installing the module with `pip install name_of_package`.
 
 ### Interactive scripts
-Large parts run interactively in the Python-package [Streamlit](www.streamlit.io). If a script has `st_` in front of the
-name, it must be run interactively through Streamlit. To launch these from the terminal, write `streamlit run st_myscript.py`
+Large parts run interactively in the Python-package
+[Streamlit](www.streamlit.io). If a script has `st_` in front of the name, it
+must be run interactively through Streamlit (or else it doesn't produce any
+visible output). To launch these from the terminal, write 
+`streamlit run st_myscript.py`
 
 ### Naming convention
 
@@ -22,30 +33,56 @@ name, it must be run interactively through Streamlit. To launch these from the t
 
 * name: filename (`model_005.h5`)
 
-### Data format
-Every dataset is preprocessed so that eventually you'll have a `hdf` file and a corresponding `npz` file. All
-computations are done on the `npz` file because it's much faster, and compatible with tensorflow. However, group order
-must be preserved according to the parent `hdf` dataframe.
+* To access something one directory up, write `../` in front of the directory
+name. Two directories up is `../../`, and so on.
 
-A `npz` has just a single group index, whereas a dataframe may have both an `id` and `sub_id` if it's combined
-from multiple sources. In that case, the `id` will correspond to the `npz` index, and `sub_id` will be the actual
-group index in the sub-dataset. Group order is only preserved if dataframe groups are sorted by `['file', 'particle']`,
-or for combined dataframes `['source', 'file', 'particle']`. To combine dataframes, the inputs are stacked in loaded order
-(which must therefore also be sorted!). All of this is done automatically, if the right sequence of steps is taken. 
+* All paths in use are defined in `lib/globals.py`, so they can be conveniently
+changed once here, rather than everywhere in the code.
+
+### Data format
+Every dataset is preprocessed so that eventually you'll have a `hdf` file and a
+corresponding `npz` file. All computations are done on the `npz` file because
+it's much faster, and compatible with tensorflow. However, group order must be
+preserved according to the parent `hdf` dataframe.
+
+A `npz` has just a single group index (i.e. '512' means trace id 512 (remember,
+Python counts from 0!), whereas a dataframe may have both an `id` and `sub_id`
+if it's combined from multiple sources. In that case, the `id` will correspond
+to the `npz` index (i.e. the order of appearance), and `sub_id` will be the
+actual group index in the sub-dataset (which is currently not used). Group order
+is only preserved if dataframe groups are sorted by `['file', 'particle']`, or
+for combined dataframes `['source', 'file', 'particle']`. To combine dataframes,
+the inputs are stacked in loaded order (which must therefore also be sorted!).
+All of this is done automatically, if the right sequence of steps is taken. 
 
 
 ### Scripts to run, step by step
 1. `get_cme_tracks.py` to convert from CME `.mat` files to a dataframe.
-2. `prepare_data.py` to filter out too short data (set it low initially to be safe), traces that would be cut by the
-tracking start/end, and 
+2. `prepare_data.py` to filter out too short data (set it low initially if you 
+want to be safe - The model will work almost equally well, regardless of the 
+minimum length), as well as traces that would be cut by the tracking start/end (
+i.e. if something starts at frame 0 of the video, it's removed, because you
+can't be sure if the actual event started at "frame -10". 
 3. `train_autoencoder.py` to train a model on the data.
-4. `st_predict.py` to predict and plot the data. Initially, a UMAP model is trained.
-5. `st_eval.py` once clustering is done and you want to explore the data.
+4. `st_predict.py` to predict and plot the data. Initially, a UMAP model is
+trained. This takes a while. It might even time out your Streamlit session, but
+don't touch anything and it'll be ready eventually.
+5. Every cluster is saved as a combination of model + data names, and will be
+output to `results/cluster_indices/`. This contains the indices of every trace
+(see above on how indexing works), and which cluster they belong to. Note that
+every change in the analysis **OVERWRITES** the automatically created file
+containing cluster indices. If you have reached a point where you want to save
+them, go to `results/cluster_indices/` and rename the file so you're sure it
+won't be overwritten. 
+6. `st_eval.py` once clustering is done and you want to explore the data. It
+currently doesn't have much functionality. Only looking at one/more specific
+datasets/clusters...
 
 ### Things to avoid
 In order to preserve group ordering, the original dataframes must be run through
- `prepare_data.py` if they need to be filtered in some way. **DO NOT** run a combine dataframe through a filter,
- because this messes up the internal group ordering that was first established when creating the combined dataframe.
+ `prepare_data.py` if they need to be filtered in some way. **DO NOT** run a
+ combine dataframe through a filter, because this messes up the internal group
+ ordering that was first established when creating the combined dataframe.
 
 ### Troubleshooting
 #### Packages are missing

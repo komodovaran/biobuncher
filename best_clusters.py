@@ -8,13 +8,13 @@ from sklearn.metrics import calinski_harabasz_score, silhouette_score
 from sklearn.mixture import GaussianMixture
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
+
+import lib.globals
+import lib.globals
 from lib.utils import get_index
 
-import lib.globals
-import lib.globals
 
-
-def _plot_kmeans_scores(X, min, max, step):
+def _plot_kmeans_score(X, min, max, step):
     """
     Calculates scores for multiple values of kmeans
     Args:
@@ -25,9 +25,8 @@ def _plot_kmeans_scores(X, min, max, step):
     """
     rng = list(range(min, max, step))
 
-    def process(n):
+    def process_gaussian(n):
         clf = GaussianMixture(n_components = n, random_state = 42)
-        # clf = MiniBatchKMeans(n_clusters=n, random_state=42)
         labels = clf.fit_predict(X)
 
         s = silhouette_score(X, labels)
@@ -36,20 +35,35 @@ def _plot_kmeans_scores(X, min, max, step):
 
         return s, c, b
 
-    n_jobs = len(rng)
-    results = Parallel(n_jobs=n_jobs)(delayed(process)(i) for i in tqdm(rng))
-    results = np.column_stack(results).T
+    def process_kmeans(n):
+        clf = MiniBatchKMeans(n_clusters=n, random_state=42)
+        labels = clf.fit_predict(X)
 
-    fig, ax = plt.subplots(nrows=3)
-    ax[0].plot(rng, results[:, 0], "o-", color="blue", label="Silhouette score")
-    ax[1].plot(rng, results[:, 1], "o-", color="orange", label="CH score")
-    ax[2].plot(rng, results[:, 2], "o-", color="red", label="BIC")
+        s = silhouette_score(X, labels)
+        c = calinski_harabasz_score(X, labels)
+        return s, c
+
+
+    n_jobs = len(rng)
+    results_kmeans = Parallel(n_jobs=n_jobs)(delayed(process_kmeans)(i) for i in tqdm(rng))
+    results_kmeans = np.column_stack(results_kmeans).T
+
+    fig, ax = plt.subplots(nrows=3, ncols = 2)
+
+    ax[0, 0].set_title("K-means")
+    ax[0, 0].plot(rng, results_kmeans[:, 0], "o-", color="blue", label="Silhouette score")
+    ax[1, 0].plot(rng, results_kmeans[:, 1], "o-", color="orange", label="CH score")
+
+    ax[0, 1].set_title("Gaussian Mixture")
+    ax[0, 1].plot(rng, results_kmeans[:, 0], "o-", color="blue", label="Silhouette score")
+    ax[1, 1].plot(rng, results_kmeans[:, 1], "o-", color="orange", label="CH score")
+    ax[2, 1].plot(rng, results_kmeans[:, 2], "o-", color="red", label="BIC")
 
     for a in ax:
         a.legend(loc="upper right")
 
     plt.tight_layout()
-    plt.savefig("plots/best_k.pdf")
+    plt.savefig("plots/best_clusters.pdf")
     plt.show()
 
 
@@ -61,11 +75,14 @@ def main(encodings_name):
 
     X, encodings = f["X_true"], f["features"]
 
+    X = X[0:1000]
+    encodings = encodings[0:1000]
+
     arr_lens = np.array([len(xi) for xi in X])
     (len_above_idx,) = np.where(arr_lens >= 30)
     X, encodings, = get_index((X, encodings), index=len_above_idx)
 
-    _plot_kmeans_scores(encodings, min=2, max=100, step=3)
+    _plot_kmeans_score(encodings, min=2, max=100, step=3)
 
 
 if __name__ == "__main__":

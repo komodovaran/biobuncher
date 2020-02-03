@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     x_train, x_val = train_test_split(X)
 
-    input_shape = x_train.shape[1:]
+    shape = x_train.shape[1:]
 
     # Define autoencoder parameters
     EPOCHS = 10
@@ -43,52 +43,61 @@ if __name__ == "__main__":
         INIT_SPARSITY, END_SPARSITY, EPOCHS
     )
 
+    i = Input(shape)
+    x = Flatten()(i)
+    h = Dense(LATENT_DIM, activation = 'sigmoid')(x)
+
+    k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(h)
+
+    x = Dense(x_train.shape[1] * x_train.shape[2] * x_train.shape[3])(k_sparse)
+    x = Reshape(shape)(x)
+    o = Activation("sigmoid")(x)
+
     # k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(x)
 
     # Build the Autoencoder Model
-    inputs = Input(shape=input_shape, name="encoder_input")
-    x = inputs
+    # i = Input(shape=input_shape, name= "encoder_input")
+    # # for filters in LAYER_FILTERS:
+    # #     x = Conv2D(
+    # #         filters=filters,
+    # #         kernel_size=KERNEL_SIZE,
+    # #         strides=2,
+    # #         activation="relu",
+    # #         padding="same",
+    # #         data_format="channels_last",
+    # #     )(x)
+    #
+    # # Generate the latent vector
+    # x = Flatten()(i)
+    # x = Dense(LATENT_DIM, activation = "sigmoid")(x)
+    # k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(x)
+    #
+    #
+    # # Decoder
+    # x = Dense(int(np.product(input_shape)), activation = "relu")(x)
+    # x = Reshape(input_shape)(x)
+    #
+    # outputs = Dense(x_train.shape[1], activation = 'sigmoid')(k_sparse)
 
-    for filters in LAYER_FILTERS:
-        x = Conv2D(
-            filters=filters,
-            kernel_size=KERNEL_SIZE,
-            strides=2,
-            activation="relu",
-            padding="same",
-            data_format="channels_last",
-        )(x)
-
-    # Generate the latent vector
-    x = Flatten()(x)
-    x = Dense(LATENT_DIM, name="latent_vector")(x)
-    k_sparse = KSparse(sparsity_levels = sparsity_levels, name = 'KSparse')(x)
-
-    # Decoder
-    x = Dense(input_shape[0] * input_shape[1] * input_shape[2])(k_sparse)
-    x = Reshape(input_shape)(x)
-
-    for filters in LAYER_FILTERS[::-1]:
-        x = Conv2DTranspose(
-            filters=filters,
-            kernel_size=KERNEL_SIZE,
-            strides=1,
-            activation="relu",
-            padding="same",
-            data_format="channels_last",
-        )(x)
-
-    x = Conv2DTranspose(
-        filters=input_shape[-1],
-        kernel_size=KERNEL_SIZE,
-        padding="same",
-        data_format="channels_last",
-    )(x)
-
-    outputs = Activation(None, name="decoder_output")(x)
+    # for filters in LAYER_FILTERS[::-1]:
+    #     x = Conv2DTranspose(
+    #         filters=filters,
+    #         kernel_size=KERNEL_SIZE,
+    #         strides=1,
+    #         activation="relu",
+    #         padding="same",
+    #         data_format="channels_last",
+    #     )(x)
+    #
+    # x = Conv2DTranspose(
+    #     filters=input_shape[-1],
+    #     kernel_size=KERNEL_SIZE,
+    #     padding="same",
+    #     data_format="channels_last",
+    # )(x)
 
     # Autoencoder = Encoder + Decoder
-    autoencoder = Model(inputs, outputs, name="autoencoder")
+    autoencoder = Model(i, o, name= "autoencoder")
     autoencoder.summary()
 
     autoencoder.compile(loss="mse", optimizer="adam")

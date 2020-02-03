@@ -4,6 +4,7 @@ from glob import glob
 from typing import Iterable
 
 import matplotlib.pyplot as plt
+
 # noinspection PyUnresolvedReferences
 import mpl_scatter_density
 import numpy as np
@@ -27,6 +28,8 @@ from sklearn.mixture import GaussianMixture
 from tensorflow.keras.models import Model
 from tensorflow.python import keras
 from tqdm import tqdm
+import matplotlib.colors
+from sklearn.cluster import DBSCAN
 
 import lib.globals
 import lib.math
@@ -215,8 +218,8 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
         latest_model_path = _latest_model(model_path)
 
         autoencoder = keras.models.load_model(
-            latest_model_path, custom_objects={"gelu": gelu,
-                                               "f1_m": lib.math.f1_m}
+            latest_model_path,
+            custom_objects={"gelu": gelu, "f1_m": lib.math.f1_m},
         )
 
         encoder = _get_encoding_layer(autoencoder)
@@ -267,7 +270,6 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
             except ValueError:
                 xi_pred = _xi_true
                 ei = np.zeros(xi_true.shape[0])
-
 
             # Make sure they're numpy arrays now and not EagerTensors!
             X_true.extend(np.array(xi_true))
@@ -344,13 +346,14 @@ def _cluster_kmeans(features, n_clusters):
     Cluster points using K-means
 
     Args:
-        features (np.array)
+        features (np.ndarray)
         n_clusters (int)
     """
     clf = MiniBatchKMeans(n_clusters=n_clusters)
     labels = clf.fit_predict(features)
     centers = clf.cluster_centers_
     return labels, centers
+
 
 @timeit
 @st.cache
@@ -359,12 +362,33 @@ def _cluster_gmm(features, n_clusters):
     Cluster points using Gaussian Mixture Model
 
     Args:
-        features (np.array)
+        features (np.ndarray)
         n_clusters (int)
     """
-    clf = GaussianMixture(n_components = n_clusters, covariance_type = "full")
+    clf = GaussianMixture(n_components=n_clusters, covariance_type="full")
     labels = clf.fit_predict(features)
     centers = clf.means_
+    return labels, centers
+
+@timeit
+@st.cache
+def _cluster_dbscan(features, eps):
+    """
+    Cluster points using DBSCAN
+
+    Args:
+        features (np.ndarray)
+        eps (float)
+    """
+    clf = DBSCAN(eps = eps, n_jobs = -1, min_samples = 200)
+    clf.fit_predict(features)
+    labels = clf.labels_
+
+    centers = []
+    for l in set(labels):
+        f = features[labels == l]
+        centers.append(np.mean(f, axis = 0))
+    centers = np.array(centers)
     return labels, centers
 
 
@@ -385,8 +409,7 @@ def _resample_traces(traces, length, normalize):
     if normalize:
         new = []
         for trace in traces_re:
-            t = trace / trace.max(axis=0)
-            t -= np.min(t, axis=0)
+            t = trace / trace.max(axis=(0, 1))
             new.append(t)
 
         traces_re = np.array(new)
@@ -453,7 +476,7 @@ def _clath_aux_peakfinder(X):
     Not very tweaked and only used as a weak guidance.
 
     Args:
-        X (np.array):
+        X (np.ndarray)
     """
 
     has_peak, has_no_peak = _find_peaks(X)
@@ -542,6 +565,22 @@ def _plot_scatter(features, subsample, cluster_labels=None):
     st.write(fig)
 
 
+def _plot_density(features):
+    """
+    Plots density map of features
+
+    Args:
+        features (np.ndarray)
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1, projection="scatter_density")
+    c = ax.scatter_density(
+        features[:, 0], features[:, 1], cmap="plasma", dpi=72
+    )
+    fig.colorbar(c, label="Datapoints per pixel")
+    st.write(fig)
+
+
 def _plot_mse(
     original_mse, mse_filter,
 ):
@@ -599,6 +638,9 @@ def _plot_traces_preview(
         sg (float or np.ndarray)
         colors (list of str)
     """
+    X_true, X_pred, mse, sample_indices = sklearn.utils.shuffle(X_true, X_pred, mse, sample_indices)
+
+
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
     axes = axes.ravel()
     for i, ax in enumerate(axes):
@@ -905,26 +947,74 @@ def main():
     st_min_length = st.sidebar.number_input(
         min_value=1,
         max_value=100,
+        value=20,
         label="Minimum length of data to cluster",
         key="st_min_length",
     )
 
-    min_len_labels = np.zeros(len(umap_enc_orig)).astype(int)
-    min_len_labels.fill(0)
+    st_max_mse = st.sidebar.number_input(
+        min_value=0.0,
+        max_value=max(mse),
+        value=max(mse),
+        label="Maximum error of data to cluster",
+        key="st_max_mse",
+    )
 
+    pre_filtered = np.zeros(len(umap_enc_orig)).astype(int)
+    pre_filtered.fill(0)
+
+    # Remove all traces below minimum length from clustering
     (len_above_idx,) = np.where(arr_lens >= st_min_length)
     X_true, X_pred, encodings, umap_enc, mse, indices, = get_index(
         (X_true, X_pred, encodings, umap_enc, mse, indices), index=len_above_idx
     )
-    min_len_labels[len_above_idx] = 1
+    pre_filtered[len_above_idx] = 1
 
-    st_clust_n = st.sidebar.number_input(label="Number of clusters", value=3)
+    # Remove all traces above max error from clustering
+    (mse_below_idx,) = np.where(mse <= st_max_mse)
+    X_true, X_pred, encodings, umap_enc, mse, indices, = get_index(
+        (X_true, X_pred, encodings, umap_enc, mse, indices), index=mse_below_idx
+    )
+    pre_filtered[mse_below_idx] = 1
 
     pca, explained_var = _pca(encodings, embed_into_n_components=4)
     _plot_explained_variance(explained_var)
 
-    # clabels, centers = _cluster_kmeans(features=pca, n_clusters=st_clust_n)
-    clabels, centers = _cluster_gmm(features = pca, n_clusters = st_clust_n)
+    clustering_methods = ("K-means", "Gaussian Mixture Model", "Density-based clustering")
+
+    st_clust_method = st.sidebar.radio(label = "Clustering method", options = clustering_methods, index = 0)
+
+    if st_clust_method == clustering_methods[0]:
+        st_clust_n = st.sidebar.number_input(label = "Number of clusters", value = 3)
+        clabels, centers = _cluster_kmeans(features=pca, n_clusters=st_clust_n)
+
+    elif st_clust_method == clustering_methods[1]:
+        st_clust_n = st.sidebar.number_input(label="Number of clusters", value=3)
+        clabels, centers = _cluster_gmm(features=pca, n_clusters=st_clust_n)
+
+    elif st_clust_method == clustering_methods[2]:
+        st_eps = st.sidebar.number_input(label = "eps", value = 0.5)
+        clabels, centers = _cluster_dbscan(features = pca, eps = st_eps)
+
+    else:
+        raise NotImplementedError
+
+    def _plot_cluster_label_distribution(data):
+        bins = np.arange(0 - 1.5, data.max() + 1.5) - 0.5
+
+        # then you plot away
+        fig, ax = plt.subplots()
+        ax.hist(data, bins)
+        ax.set_xticks(bins + 0.5)
+
+        svg_write(fig)
+
+    _plot_cluster_label_distribution(clabels)
+
+    st.write(set(clabels))
+    st.write(np.histogram(clabels))
+    st.write(clabels)
+    st.write(centers)
 
     st.subheader("Lengths")
     _plot_length_dist(
@@ -934,15 +1024,19 @@ def main():
     )
     st.subheader("UMAP displaying length cutoff filter")
     _plot_scatter(
-        features=umap_enc_orig, cluster_labels=min_len_labels, subsample=False
+        features=umap_enc_orig, cluster_labels=pre_filtered, subsample=False
     )
+
+    st.subheader("UMAP density on filtered")
+    _plot_density(umap_enc)
+
+    st.subheader("UMAP after clustering on filtered")
+    _plot_scatter(features=umap_enc, cluster_labels=clabels, subsample=False)
+
     st.subheader("PCA after clustering on filtered")
     _plot_scatter(
         features=pca[:, [0, 1]], cluster_labels=clabels, subsample=False
     )
-
-    st.subheader("UMAP after clustering on filtered")
-    _plot_scatter(features=umap_enc, cluster_labels=clabels, subsample=False)
 
     n_clusters = len(set(clabels))
     len_X_true_postfilter = len(X_true)
