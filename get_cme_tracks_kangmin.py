@@ -1,17 +1,17 @@
+import re
 from glob import glob
+
+import numpy as np
 import pandas as pd
+import parmap
 import scipy.io
-from multiprocessing import Pool, cpu_count
-from lib.utils import remove_parent_dir
 
 
-def cme_tracks_to_pandas(mat_path, rm_n_parent_dir=4):
+def cme_tracks_to_pandas(mat_path, project_name):
     """
     Converts CME-derived ProcessedTracks.mat to Pandas DataFrame format.
     Single point extracted_features are marked with trailing underscores because
     Pandas can't deal with variable length columns formats
-
-    Set the number of parent directories to remove, to get the right subfolder in the file
     """
     matlab_file = scipy.io.loadmat(mat_path)
     m = pd.DataFrame(matlab_file["tracks"][0])
@@ -20,10 +20,16 @@ def cme_tracks_to_pandas(mat_path, rm_n_parent_dir=4):
     for n in range(len(m)):
         x = m.loc[n]
 
-        group_len = len(x["t"].T[:, 0])
+        # Find out where parent dirs can be skipped
+        real_dir = re.search(string = mat_path, pattern = project_name)
+
+        # Create path from actual directory
+        filepath = mat_path[real_dir.start():]
+
+        track_len = len(x["t"].T[:, 0])
         group = pd.DataFrame(
             {
-                "file": remove_parent_dir(mat_path, rm_n_parent_dir),
+                "file": np.repeat(filepath, track_len),
                 "particle": n,
                 "t": x["t"].T[:, 0],  # actual video time for particle
                 "f": x["f"].T[:, 0],
@@ -43,10 +49,10 @@ def cme_tracks_to_pandas(mat_path, rm_n_parent_dir=4):
                 "sigma_r_c1": x["sigma_r"].T[:, 1],
                 "SE_sigma_r_c0": x["SE_sigma_r"].T[:, 0],
                 "SE_sigma_r_c1": x["SE_sigma_r"].T[:, 1],
-                "catIdx__": x["catIdx"].T[:, 0].repeat(group_len),
-                # "visibility__": x["visibility"].T[:, 0].repeat(group_len),
-                # "lifetime_s__": x["lifetime_s"].T[:, 0].repeat(group_len),
-                # "isCCP"       : x["isCCP"].T[:, 0].repeat(group_len)
+                "catIdx__": x["catIdx"].T[:, 0].repeat(track_len),
+                # "visibility__": x["visibility"].T[:, 0].repeat(track_len),
+                # "lifetime_s__": x["lifetime_s"].T[:, 0].repeat(track_len),
+                # "isCCP"       : x["isCCP"].T[:, 0].repeat(track_len)
             }
         )
         # forward fill all NaNs
@@ -83,23 +89,27 @@ def main(names, input, output):
         print("\nAccepted files:")
         [print(f) for f in accepted_files]
 
-        with Pool(cpu_count()) as p:
-            df = pd.concat(p.map(cme_tracks_to_pandas, accepted_files))
+        df = pd.concat(parmap.map(cme_tracks_to_pandas, files, project_name = name))
 
         print("NaNs:\n:", df.isna().sum())
         print("Number of files in df: {}".format(len(df["file"].unique())))
 
         # ALl traces
-        df.to_hdf(_output, key="df")
+        # df.to_hdf(_output, key="df")
 
 
 if __name__ == "__main__":
-    INPUT = "../../../Data/{}/**/ProcessedTracks.mat"
-    OUTPUT = "data/preprocessed/tracks-{}.h5"
-    NAMES = (
+    # Project name goes into curly path
+    PROJECT_NAMES = (
         "CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6",
         "CLTA-TagRFP EGFP-Aux1-A7D2",
         "CLTA-TagRFP EGFP-Gak-A8",
     )
 
-    main(names=NAMES, input=INPUT, output=OUTPUT)
+    # Search for tracks in this path. ** means multiple wildcard subdirectories
+    SEARCH_PATTERN = "../../../Data/{}/**/ProcessedTracks.mat"
+
+    # Output to a file that also contains the project name in the curly bracket
+    OUTPUT_NAME = "data/preprocessed/tracks-{}.h5"
+
+    main(names=PROJECT_NAMES, input=SEARCH_PATTERN, output=OUTPUT_NAME)
