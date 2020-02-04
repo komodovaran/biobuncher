@@ -47,7 +47,7 @@ def _process(df, path, filter):
 
     df_filtered.to_hdf(path[:-3] + "_filt{}_var.h5".format(filter), key="df")
     np.savez(
-        path[:-3] + "filt{}_var.npz".format(filter),
+        path[:-3] + "_filt{}_var.npz".format(filter),
         data=arrays,
         allow_pickle=True,
     )
