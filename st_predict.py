@@ -740,15 +740,13 @@ def _dendrogram_trace_plot(X, cluster_labels, cluster_centers):
         above_threshold_color="black",
     )
     mean_trace_idx = np.array(list(reversed(d["ivl"])), dtype=int)
-    st.write(mean_trace_idx)
 
     traces_groups = _resample_clustered_traces(
         X=X, cluster_labels=cluster_labels, resample_length=150,
     )
-    st.write(len(traces_groups))
 
-    for idx in mean_trace_idx:
-        ax = axes[idx + 1]  # skip first (dendrogram)
+    for n, idx in enumerate(mean_trace_idx):
+        ax = axes[n+1]  # skip first (dendrogram)
         clrs = ["black", "red", "blue"]
 
         traces = traces_groups[idx]

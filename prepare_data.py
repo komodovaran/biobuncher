@@ -10,19 +10,31 @@ pd.set_option("display.max_columns", 100)
 def _filter(args):
     """
     Parallel filter function
+
+    Note:
+        t column: actual real time (seconds, miliseconds, etc)
+        f column: relative apperance time in video [26, 27, 28...]
     """
     _, group = args
 
+    failsafes = []
     # check that it's not first
-    fail1 = group["f"].values[0] == FIRST_FRAME
-    # or last frame
-    fail2 = group["f"].values[-1] == LAST_FRAME
-    # check that it's not longer than maximum length
+    if REMOVE_EDGES:
+        fail1 = group["f"].values[0] == FIRST_FRAME
+        # or last frame
+        fail2 = group["f"].values[-1] == LAST_FRAME
+
+        failsafes.extend([fail1, fail2])
+
+    # check that group is not somehow longer than maximum length
     fail3 = len(group) >= LAST_FRAME
     # check that it's longer than minimum
     fail4 = len(group) <= MIN_LEN
+
+    failsafes.extend([fail3, fail4])
+
     # if any fails, discard trace
-    if any([fail1, fail2, fail3, fail4]):
+    if any(failsafes):
         return None
     else:
         return group
@@ -72,17 +84,18 @@ def _process_to_arrays(df, path, filter):
     print("Example check: ", arrays[-1].shape)
 
 
-def main(input, min_len):
+def main(input, min_len, remove_edges):
     for i in input:
         # Need to globally declare for the parallel function to easily grab
         global FIRST_FRAME
         global LAST_FRAME
         global MIN_LEN
+        global REMOVE_EDGES
 
         df = pd.DataFrame(pd.read_hdf(i))
 
-        FIRST_FRAME = df["t"].min()
-        LAST_FRAME = df["t"].max()
+        FIRST_FRAME = df["f"].min()
+        LAST_FRAME = df["f"].max()
         if LAST_FRAME == 0:
             raise ValueError(
                 "Couldn't determine max frame, as last timepoint in 't' column "
@@ -100,5 +113,6 @@ if __name__ == "__main__":
         # "data/preprocessed/test-CS2_CAV-GFP_VLP-CF640_filt5_var.h5",
     )
     MIN_LEN = 5  # default 5
+    REMOVE_EDGES = False
 
-    main(input=INPUT_DF, min_len=MIN_LEN)
+    main(input=INPUT_DF, min_len=MIN_LEN, remove_edges = REMOVE_EDGES)

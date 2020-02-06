@@ -164,13 +164,13 @@ def lstm_vae_bidir(
 
     # Create a n-dimensional distribution to sample from
     z_mu = Dense(z_dim, name="z_mu")(xe)
-    # z_log_var = Dense(z_dim, name="z_var")(xe)
+    z_log_var = Dense(z_dim, name="z_var")(xe)
 
     # Add a layer that calculates the KL loss and returns the values
-    # z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
+    z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
 
     # sample vector from the latent distribution
-    # z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
+    z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
     z = z_mu
 
     # Repeat so it fits into LSTM
