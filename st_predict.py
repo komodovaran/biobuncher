@@ -822,9 +822,10 @@ def _plot_cluster_label_distribution(cluster_labels):
         cluster_labels (np.array)
     """
     cluster_labels = np.ravel(cluster_labels)
+    cluster_labels = cluster_labels[cluster_labels != -1]
 
     bins = range(min(cluster_labels), max(cluster_labels) + 2)
-    fig, ax = plt.subplots(figsize=(5, 15))
+    fig, ax = plt.subplots(figsize=(7, len(set(cluster_labels)) // 2))
     ax.hist(
         cluster_labels,
         bins=bins,
@@ -1091,6 +1092,16 @@ def main():
         features=pca[:, [0, 1]], cluster_labels=clabels,
     )
 
+    st.subheader("Euclidian distance relationship")
+    umap_centers = lib.math.cluster_centers(
+        features=umap_enc[clabels != -1], labels=clabels[clabels != -1]
+    )
+    _dendrogram_trace_plot(
+        X=X_true[clabels != -1],
+        cluster_labels=clabels[clabels != -1],
+        cluster_centers=umap_centers,
+    )
+
     n_clusters = len(set(clabels[clabels != -1]))
     len_X_true_postfilter = len(X_true[clabels != -1])
     colormap = lib.plotting.get_colors("viridis", n_colors=n_clusters)
@@ -1130,17 +1141,6 @@ def main():
 
     st_separate_y = st.sidebar.checkbox(
         label="Separate y-axis for traces", value=False, key="st_separate_y"
-    )
-
-    st.subheader("Euclidian distance relationship")
-    umap_centers = lib.math.cluster_centers(
-        features=umap_enc[clabels != -1], labels=clabels[clabels != -1]
-    )
-
-    _dendrogram_trace_plot(
-        X=X_true[clabels != -1],
-        cluster_labels=clabels[clabels != -1],
-        cluster_centers=umap_centers,
     )
 
     if not st.checkbox(
