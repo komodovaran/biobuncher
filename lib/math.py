@@ -1,8 +1,10 @@
+import numpy
 import numpy as np
 import parmap
 import scipy.interpolate
 import sklearn.mixture
-from scipy import fftpack
+from Cython.Includes import numpy
+from scipy import fftpack, stats as st
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 from sklearn.metrics.pairwise import euclidean_distances
@@ -537,3 +539,50 @@ def f1_m(y_true, y_pred):
     precision = precision_m(y_true, y_pred)
     recall = recall_m(y_true, y_pred)
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
+
+def cluster_centers(features, labels):
+    """
+    Finds the euclidian centers of clusters given a set of clustered
+    features and their labels
+
+    Args:
+        features (np.ndarray)
+        labels (np.ndarray)
+    """
+    centers = []
+    for l in set(labels):
+        f = features[labels == l]
+        centers.append(np.median(f, axis = 0))
+    centers = np.array(centers)
+    return centers
+
+
+def kde_2d(x, y):
+    """
+    Calculates 2D gaussian kernel density estimate and returns XY-Z grid formatted
+    data to be used like
+
+    ax.contour(X, Y, Z)
+
+    Args:
+        x (np.ndarray)
+        y (np.ndarray)
+    """
+    # Define the borders
+    deltaX = (max(x) - min(x))/10
+    deltaY = (max(y) - min(y))/10
+    xmin = min(x) - deltaX
+    xmax = max(x) + deltaX
+    ymin = min(y) - deltaY
+    ymax = max(y) + deltaY
+
+    # Create meshgrid
+    X, Y = np.meshgrid(np.linspace(xmin, xmax, 100), np.linspace(ymin, ymax, 100))
+    # X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+
+    positions = np.vstack([X.ravel(), Y.ravel()])
+    values = np.vstack([x, y])
+    kernel = st.gaussian_kde(values, bw_method = "silverman")
+    Z = np.reshape(kernel(positions).T, X.shape)
+    return X, Y, Z

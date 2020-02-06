@@ -190,8 +190,10 @@ def plot_timeseries_percentile(timeseries, ax, n_percentiles = 10, min_percentil
         colormap = matplotlib.cm.Greys_r
     elif color == "purple":
         colormap = matplotlib.cm.Purples_r
+    elif color == "orange":
+        colormap = matplotlib.cm.Oranges_r
     else:
-        raise NotImplementedError("Colors available: 'red', 'blue'")
+        raise NotImplementedError("Colormap not implemented for given color")
 
     cmap = colormap(np.arange(colormap.N))
     # Set alpha
@@ -271,7 +273,7 @@ def dendrogram_ts_layout(n_timeseries):
     Args:
         n_timeseries (int)
     """
-    fig = plt.figure(figsize = (5, 25))
+    fig = plt.figure(figsize = (8, n_timeseries*2))
     outer_grid = fig.add_gridspec(nrows = 1, ncols = 2, wspace=0.2, hspace=0.2)
 
     outer_grid[0].subgridspec(1, 1, wspace = 0.0, hspace = 0.0)

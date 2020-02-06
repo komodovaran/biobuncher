@@ -463,3 +463,20 @@ def split_and_keep(s, sep):
 
 def remove_none(ls):
     return [i for i in ls if i is not None]
+
+
+def random_subset(list_of_objs, n_samples):
+    """
+    Subsamples arrays
+
+    Args:
+        n_samples (int)
+    """
+    lens = [len(a) for a in list_of_objs]
+    if not all_equal(lens):
+        raise ValueError("All arrays must contain same number of samples")
+
+    idx = np.arange(0, lens[0], 1)
+    rand_idx = np.random.choice(idx, n_samples, replace=False)
+
+    return get_index(list_of_objs, index=rand_idx)

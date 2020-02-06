@@ -24,7 +24,6 @@ def cme_tracks_to_pandas(mat_path, project_name):
 
     Add extra columns as required.
     """
-
     COLUMNS = "A", "f", "t", "x", "y", "z"
 
     h5file = h5py.File(mat_path, "r")
@@ -56,7 +55,6 @@ def cme_tracks_to_pandas(mat_path, project_name):
         )
 
         df.append(group)
-
         group.fillna(method="ffill", inplace=True)
 
     return pd.concat(df)

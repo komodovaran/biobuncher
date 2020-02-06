@@ -164,14 +164,14 @@ def lstm_vae_bidir(
 
     # Create a n-dimensional distribution to sample from
     z_mu = Dense(z_dim, name="z_mu")(xe)
-    z_log_var = Dense(z_dim, name="z_var")(xe)
+    # z_log_var = Dense(z_dim, name="z_var")(xe)
 
     # Add a layer that calculates the KL loss and returns the values
-    z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
+    # z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var, kl_weight])
 
     # sample vector from the latent distribution
-    z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
-
+    # z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
+    z = z_mu
 
     # Repeat so it fits into LSTM
     xd = VariableRepeatVector()([inputs, z])
@@ -186,7 +186,7 @@ def lstm_vae_bidir(
     # Start with 0 weight for the KL loss, and slowly increase with callback
     vae = Model(inputs, outputs)
     vae.compile(optimizer="adam", loss="mse")
-    vae.summary()
+
     return vae
 
 
@@ -323,16 +323,16 @@ def model_builder(
     build_args,
     patience=3,
     model_dir=None,
-    chkpt_tag=None,
+    tag=None,
     weights_only=False,
 ):
     """Loads model and callbacks"""
     # set a directory in case None is set initially
-    if chkpt_tag is None:
-        chkpt_tag = ""
+    if tag is None:
+        tag = ""
 
     _model_dir = Path(
-        "models/" + datetime.datetime.now().strftime("%Y%m%d-%H%M") + chkpt_tag
+        "models/" + datetime.datetime.now().strftime("%Y%m%d-%H%M") + tag
     )
 
     initial_epoch = 0

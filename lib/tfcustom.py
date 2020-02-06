@@ -3,8 +3,17 @@ import sklearn.utils
 import tensorflow as tf
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.callbacks import Callback
-from tensorflow.python.keras.layers import Activation, Add, BatchNormalization, Conv1D, Lambda, Layer, MaxPooling1D
+from tensorflow.python.keras.layers import (
+    Activation,
+    Add,
+    BatchNormalization,
+    Conv1D,
+    Lambda,
+    Layer,
+    MaxPooling1D,
+)
 import lib.utils
+
 
 class KLDivergenceLayer(Layer):
     """
@@ -13,6 +22,7 @@ class KLDivergenceLayer(Layer):
     Keep all values in the __call__, otherwise the layer will break because
     it lacks other components required
     """
+
     def __init__(self, *args, **kwargs):
         self.is_placeholder = True
         super(KLDivergenceLayer, self).__init__(*args, **kwargs)
@@ -53,7 +63,13 @@ class VariableTimeseriesBatchGenerator:
     """
 
     def __init__(
-        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices=None, y = None
+        self,
+        X,
+        max_batch_size,
+        shuffle_samples,
+        shuffle_batches,
+        indices=None,
+        y=None,
     ):
         if indices is None:
             indices = np.arange(0, len(X), 1)
@@ -73,7 +89,13 @@ class VariableTimeseriesBatchGenerator:
             yield l[i : i + n]
 
     def batch_by_length(
-        self, X, max_batch_size, shuffle_samples, shuffle_batches, indices, y = None
+        self,
+        X,
+        max_batch_size,
+        shuffle_samples,
+        shuffle_batches,
+        indices,
+        y=None,
     ):
         """
         Batches a list of variable-length samples into equal-sized tensors
@@ -141,7 +163,9 @@ class VariableTimeseriesBatchGenerator:
         # Shuffle batches of different lengths (not individual samples)
         if shuffle_batches:
             if y is not None:
-                dataset, index_set, labels = sklearn.utils.shuffle(dataset, index_set, labels)
+                dataset, index_set, labels = sklearn.utils.shuffle(
+                    dataset, index_set, labels
+                )
             else:
                 dataset, index_set = sklearn.utils.shuffle(dataset, index_set)
 
@@ -211,7 +235,7 @@ class ResidualConv1D:
     def build(self, x):
         res = x
         if self.pool:
-            x = MaxPooling1D(1, padding= "same")(x)
+            x = MaxPooling1D(1, padding="same")(x)
             res = Conv1D(kernel_size=1, **self.p)(res)
 
         out = Conv1D(kernel_size=1, **self.p)(x)
@@ -236,6 +260,7 @@ class AnnealingVariableCallback(Callback):
     """
     Slowly increases a variable from 0 to 1 over a given amount of epochs
     """
+
     def __init__(self, var, anneals_starts_at, anneal_over_n_epochs):
         super(AnnealingVariableCallback, self).__init__()
         self.var = var
@@ -277,29 +302,32 @@ def nll(y_true, y_pred):
     return K.sum(K.binary_crossentropy(y_true, y_pred), axis=-1)
 
 
-
 class KSparse(Layer):
-    '''k-sparse Keras layer.
+    """k-sparse Keras layer.
 
     # Arguments
         sparsity_levels: np.ndarray, sparsity levels per epoch calculated by `calculate_sparsity_levels`
-    '''
+    """
 
     def __init__(self, sparsity_levels, **kwargs):
-        self.sparsity_levels = tf.constant(sparsity_levels, dtype = tf.int32)
-        self.k = tf.Variable(initial_value = self.sparsity_levels[0])
+        self.sparsity_levels = tf.constant(sparsity_levels, dtype=tf.int32)
+        self.k = tf.Variable(initial_value=self.sparsity_levels[0])
         self.uses_learning_phase = True
         super().__init__(**kwargs)
 
-    def call(self, inputs, mask = None):
+    def call(self, inputs, mask=None):
         def sparse():
-            kth_smallest = tf.sort(inputs)[..., K.shape(inputs)[-1] - 1 - self.k]
-            return inputs * K.cast(K.greater(inputs, kth_smallest[:, None]), K.floatx())
+            kth_smallest = tf.sort(inputs)[
+                ..., K.shape(inputs)[-1] - 1 - self.k
+            ]
+            return inputs * K.cast(
+                K.greater(inputs, kth_smallest[:, None]), K.floatx()
+            )
 
         return K.in_train_phase(sparse, inputs)
 
     def get_config(self):
-        config = {'k': self.k}
+        config = {"k": self.k}
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -311,8 +339,9 @@ class UpdateSparsityLevel(Callback):
     """
     Update sparsity level at the beginning of each epoch.
     """
-    def on_epoch_begin(self, epoch, logs = {}):
-        l = self.model.get_layer('KSparse')
+
+    def on_epoch_begin(self, epoch, logs={}):
+        l = self.model.get_layer("KSparse")
         K.set_value(l.k, l.sparsity_levels[epoch])
 
 
@@ -326,5 +355,11 @@ def calculate_sparsity_levels(initial_sparsity, final_sparsity, n_epochs):
         final_sparsity: int
         n_epochs: int
     """
-    return np.hstack((np.linspace(initial_sparsity, final_sparsity, n_epochs // 2, dtype = np.int),
-                      np.repeat(final_sparsity, (n_epochs // 2) + 1)))[:n_epochs]
+    return np.hstack(
+        (
+            np.linspace(
+                initial_sparsity, final_sparsity, n_epochs // 2, dtype=np.int
+            ),
+            np.repeat(final_sparsity, (n_epochs // 2) + 1),
+        )
+    )[:n_epochs]

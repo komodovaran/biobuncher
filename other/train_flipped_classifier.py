@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
         model, callbacks, initial_epoch, model_dir = lib.models.model_builder(
             model_dir=CONTINUE_DIR,
-            chkpt_tag=TAG,
+            tag =TAG,
             weights_only=False,
             patience=EARLY_STOPPING,
             model_build_f=_modelf,

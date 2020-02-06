@@ -12,16 +12,17 @@ def _filter(args):
     Parallel filter function
     """
     _, group = args
+
     # check that it's not first
-    check1 = group["f"].values[0] == FIRST_FRAME
+    fail1 = group["f"].values[0] == FIRST_FRAME
     # or last frame
-    check2 = group["f"].values[-1] == LAST_FRAME
+    fail2 = group["f"].values[-1] == LAST_FRAME
     # check that it's not longer than maximum length
-    check3 = len(group) >= LAST_FRAME
+    fail3 = len(group) >= LAST_FRAME
     # check that it's longer than minimum
-    check4 = len(group) <= MIN_LEN
-    # if any checks fail, discard trace
-    if any([check1, check2, check3, check4]):
+    fail4 = len(group) <= MIN_LEN
+    # if any fails, discard trace
+    if any([fail1, fail2, fail3, fail4]):
         return None
     else:
         return group
@@ -40,9 +41,21 @@ def _process_to_arrays(df, path, filter):
             columns.append(r.string)
 
     grouped_df = df.groupby(by)
-    df_filtered = pd.concat(
-        parmap.map(_filter, tqdm(grouped_df), pm_processes=16), sort=False
-    )
+
+    for i, (_, group) in enumerate(grouped_df):
+        if group["f"].values[0] != 1:
+            print(group[["f", "t"]].head(5))
+
+    try:
+        df_filtered = pd.concat(
+            parmap.map(_filter, tqdm(grouped_df), pm_processes=16), sort=False
+        )
+    except ValueError:
+        print(
+            "Couldn't concatenate anything!\n"
+            "Maybe all traces were removed in filtering?"
+        )
+        return
 
     arrays = [g[columns].values for _, g in tqdm(df_filtered.groupby(by))]
 
@@ -67,16 +80,24 @@ def main(input, min_len):
         global MIN_LEN
 
         df = pd.DataFrame(pd.read_hdf(i))
+
         FIRST_FRAME = df["t"].min()
         LAST_FRAME = df["t"].max()
+        if LAST_FRAME == 0:
+            raise ValueError(
+                "Couldn't determine max frame, as last timepoint in 't' column "
+                "is zero. Fix the 't' column before attempting to run this "
+                "script"
+            )
         _process_to_arrays(df=df, path=i, filter=min_len)
 
 
 if __name__ == "__main__":
     INPUT_DF = (
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.h5",
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.h5",
-        "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",
+        # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.h5",
+        # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.h5",
+        # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",
+        # "data/preprocessed/test-CS2_CAV-GFP_VLP-CF640_filt5_var.h5",
     )
     MIN_LEN = 5  # default 5
 
