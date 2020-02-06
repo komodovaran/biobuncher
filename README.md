@@ -112,7 +112,7 @@ To fix this, open a terminal and write
 2. `kill -9 pid`, where `pid` is the number above
 
 #### What to do if you can't delete a directory:
-Tensorflow by default creates directorities with incorrect permissions for PyCharm.
+Tensorflow by default creates directories with incorrect permissions for PyCharm.
 To fix this and make them deletable from PyCharm navigate to the base directory and write
 `sudo chmod -R 777 models`.
 

@@ -52,10 +52,10 @@ def preprocess(X, y, n_features, max_batch_size, train_size):
         y = y.reshape(-1, 1)
         y_train, y_test = y[idx_train, ...], y[idx_test, ...]
 
-        # ru = RandomUnderSampler()
-        # _, y_train = ru.fit_resample(X = y_train, y = y_train)
-        # selected = ru.sample_indices_
-        # X_train = X_train[selected]
+        ru = RandomUnderSampler()
+        _, y_train = ru.fit_resample(X = y_train, y = y_train)
+        selected = ru.sample_indices_
+        X_train = X_train[selected]
 
         y_train, y_test = [
             tensorflow.keras.utils.to_categorical(y, num_classes = 2)
@@ -165,7 +165,7 @@ if __name__ == "__main__":
 
         model, callbacks, initial_epoch, model_dir = lib.models.model_builder(
             model_dir=CONTINUE_DIR,
-            chkpt_tag=TAG,
+            tag =TAG,
             weights_only=False,
             patience=EARLY_STOPPING,
             model_build_f=_modelf,

@@ -17,6 +17,6 @@ def main(real_npz, fake_npz):
 
 
 if __name__ == "__main__":
-    REAL_NPZ = "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.npz"
-    FAKE_NPZ = "data/preprocessed/fake_tracks_type_2.npz"
+    REAL_NPZ = "data/preprocessed/combined_filt20_var.npz"
+    FAKE_NPZ = "data/preprocessed/fake_tracks_type_3.npz"
     main(real_npz = REAL_NPZ, fake_npz = FAKE_NPZ)

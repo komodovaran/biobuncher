@@ -27,7 +27,7 @@ def _filter(args):
         return group
 
 
-def _process(df, path, filter):
+def _process_to_arrays(df, path, filter):
     """
     Save as filtered arrays, to make downstream processing easier
     """
@@ -43,6 +43,7 @@ def _process(df, path, filter):
     df_filtered = pd.concat(
         parmap.map(_filter, tqdm(grouped_df), pm_processes=16), sort=False
     )
+
     arrays = [g[columns].values for _, g in tqdm(df_filtered.groupby(by))]
 
     df_filtered.to_hdf(path[:-3] + "_filt{}_var.h5".format(filter), key="df")
@@ -68,7 +69,7 @@ def main(input, min_len):
         df = pd.DataFrame(pd.read_hdf(i))
         FIRST_FRAME = df["t"].min()
         LAST_FRAME = df["t"].max()
-        _process(df=df, path=i, filter=min_len)
+        _process_to_arrays(df=df, path=i, filter=min_len)
 
 
 if __name__ == "__main__":

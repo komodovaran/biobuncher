@@ -7,8 +7,6 @@ import seaborn as sns
 import sklearn.model_selection
 import sklearn.preprocessing
 import tensorflow as tf
-import parmap
-from tqdm import tqdm
 
 import lib.math
 import lib.models
@@ -49,18 +47,18 @@ def _preprocess(X, n_features, max_batch_size, train_size):
         lib.math.standardize(X, mu, sg) for X in (X_train, X_test)
     ]
 
-    data, lengths, sizes = [], [], []
+    data, steps_per_epoch, sizes = [], [], []
     for X in X_train, X_test:
         # Batch into variable batches to speed up (but see caveats)
         Xi = VariableTimeseriesBatchGenerator(
             X=X.tolist(),
-            y = None,
+            y=None,
             max_batch_size=max_batch_size,
             shuffle_samples=True,
             shuffle_batches=True,
         )
 
-        steps_per_epoch = Xi.steps_per_epoch
+        steps = Xi.steps_per_epoch
         batch_sizes = Xi.batch_sizes
 
         X = tf.data.Dataset.from_generator(
@@ -69,11 +67,11 @@ def _preprocess(X, n_features, max_batch_size, train_size):
             output_shapes=((None, None, n_features), (None, None, n_features)),
         )
         sizes.append(batch_sizes)
-        lengths.append(steps_per_epoch)
+        steps_per_epoch.append(steps)
         data.append(X)
 
     info = idx_train, idx_test, mu, sg
-    return data, lengths, info
+    return data, steps_per_epoch, info
 
 
 if __name__ == "__main__":
@@ -94,10 +92,10 @@ if __name__ == "__main__":
     # Best results have been found with keeping latent dim high and zdim low
     LATENT_DIM = (128,)
     ACTIVATION = (None,)
-    ZDIM = (8, 16,)
-    EPS = (0.1, 1,)
-    KEEP_ONLY = (None,)
-    ANNEAL_TIME = (1, 5, 20)
+    ZDIM = (8,)
+    EPS = (1,)
+    KEEP_ONLY = (None,) # select channel to keep, 'None' if keep all
+    ANNEAL_TIME = (20,)
 
     # Add iterables here
     for (
@@ -142,31 +140,33 @@ if __name__ == "__main__":
             _activation,
         ]
 
+
         TAG = "_{}".format(_modelf.__name__)
         TAG += "_data={}".format(_input_npz.split("/")[-1])  # input data
         TAG += "_dim={}".format(_latent_dim)  # LSTM latent dimension
         TAG += "_act={}".format(_activation)  # activation function
         TAG += "_bat={}".format(_batch_size)  # batch size
-        TAG += "_eps={}_zdim={}_anneal={}".format(
-            _eps, _zdim, _anneal_time
+        # TAG += "_eps={}_zdim={}_anneal={}".format(
+        #     _eps, _zdim, _anneal_time
+        # )  # vae parameters
+        TAG += "_nonvae"
 
-        )  # vae parameters
         if _keep_only is not None:
             TAG += "_single={}".format(
                 _keep_only
             )  # Keep only one of the features
 
-        data, lengths, info = _preprocess(
+        data, steps_per_epoch, info = _preprocess(
             X=X_raw,
             n_features=N_FEATURES,
             max_batch_size=_batch_size,
             train_size=TRAIN_TEST_SIZE,
         )
-        (X_train, X_test), (X_train_steps, X_test_steps) = data, lengths
+        (X_train, X_test), (X_train_steps, X_test_steps) = data, steps_per_epoch
 
         model, callbacks, initial_epoch, model_dir = lib.models.model_builder(
             model_dir=CONTINUE_DIR,
-            chkpt_tag=TAG,
+            tag =TAG,
             weights_only=False,
             patience=EARLY_STOPPING,
             model_build_f=_modelf,
