@@ -171,7 +171,6 @@ def lstm_vae_bidir(
 
     # sample vector from the latent distribution
     z = Lambda(_sample, name="encoded")([z_mu, z_log_var])
-    z = z_mu
 
     # Repeat so it fits into LSTM
     xd = VariableRepeatVector()([inputs, z])

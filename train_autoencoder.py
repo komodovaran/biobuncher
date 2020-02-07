@@ -87,15 +87,12 @@ if __name__ == "__main__":
     CONTINUE_DIR = None
 
     # Remember to end everything with a comma to make single values iterable
-    # latent dim is the model memory capacity
-    # zdim is the vector representation
-    # Best results have been found with keeping latent dim high and zdim low
-    LATENT_DIM = (128,)
-    ACTIVATION = (None,)
-    ZDIM = (8,)
-    EPS = (1,)
+    LSTM_UNITS = (128,) # LSTM memory capacity. Set as high as possible to avoid bottleneck
+    LATENT_DIM = (64,) # default at least 16, but higher may work better
+    EPS = (1,)  # default 1
+    ANNEAL_TIME = (1,)  # default 1
     KEEP_ONLY = (None,) # select channel to keep, 'None' if keep all
-    ANNEAL_TIME = (20,)
+    ACTIVATION = (None,) # experimental, keep to 'None'
 
     # Add iterables here
     for (
@@ -111,10 +108,10 @@ if __name__ == "__main__":
     ) in itertools.product(
         INPUT_NPZ,
         BATCH_SIZE,
-        LATENT_DIM,
+        LSTM_UNITS,
         ACTIVATION,
         EPS,
-        ZDIM,
+        LATENT_DIM,
         ANNEAL_TIME,
         KEEP_ONLY,
         MODELF,
@@ -146,10 +143,9 @@ if __name__ == "__main__":
         TAG += "_dim={}".format(_latent_dim)  # LSTM latent dimension
         TAG += "_act={}".format(_activation)  # activation function
         TAG += "_bat={}".format(_batch_size)  # batch size
-        # TAG += "_eps={}_zdim={}_anneal={}".format(
-        #     _eps, _zdim, _anneal_time
-        # )  # vae parameters
-        TAG += "_nonvae"
+        TAG += "_eps={}_zdim={}_anneal={}".format(
+            _eps, _zdim, _anneal_time
+        )  # vae parameters
 
         if _keep_only is not None:
             TAG += "_single={}".format(

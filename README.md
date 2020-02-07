@@ -60,9 +60,11 @@ All of this is done automatically, if the right sequence of steps is taken.
 1. `get_cme_tracks.py` to convert from CME `.mat` files to a dataframe.
 2. `prepare_data.py` to filter out too short data (set it low initially if you 
 want to be safe - The model will work almost equally well, regardless of the 
-minimum length), as well as traces that would be cut by the tracking start/end (
-i.e. if something starts at frame 0 of the video, it's removed, because you
-can't be sure if the actual event started at "frame -10". 
+minimum length). If desired, can also remove tracks that would be cut by the
+tracking start/end (i.e. if something starts at frame 0 of the video, it's
+removed, because you can't be sure if the actual event started at "frame -10".).
+This can also be disabled if not desirable/applicable for the data at hand. 
+ 
 3. `train_autoencoder.py` to train a model on the data.
 4. `st_predict.py` to predict and plot the data. Initially, a UMAP model is
 trained. This takes a while. It might even time out your Streamlit session, but

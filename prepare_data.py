@@ -20,6 +20,7 @@ def _filter(args):
     failsafes = []
     # check that it's not first
     if REMOVE_EDGES:
+        print(REMOVE_EDGES)
         fail1 = group["f"].values[0] == FIRST_FRAME
         # or last frame
         fail2 = group["f"].values[-1] == LAST_FRAME
@@ -54,10 +55,6 @@ def _process_to_arrays(df, path, filter):
 
     grouped_df = df.groupby(by)
 
-    for i, (_, group) in enumerate(grouped_df):
-        if group["f"].values[0] != 1:
-            print(group[["f", "t"]].head(5))
-
     try:
         df_filtered = pd.concat(
             parmap.map(_filter, tqdm(grouped_df), pm_processes=16), sort=False
@@ -84,7 +81,7 @@ def _process_to_arrays(df, path, filter):
     print("Example check: ", arrays[-1].shape)
 
 
-def main(input, min_len, remove_edges):
+def main(input, min_len):
     for i in input:
         # Need to globally declare for the parallel function to easily grab
         global FIRST_FRAME
@@ -110,9 +107,9 @@ if __name__ == "__main__":
         # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2 EGFP-Gak-F6_filt5_var.h5",
         # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Aux1-A7D2_filt5_var.h5",
         # "data/preprocessed/tracks-CLTA-TagRFP EGFP-Gak-A8_filt5_var.h5",
-        # "data/preprocessed/test-CS2_CAV-GFP_VLP-CF640_filt5_var.h5",
+        "data/preprocessed/test-CS2_CAV-GFP_VLP-CF640_filt5_var.h5",
     )
     MIN_LEN = 5  # default 5
-    REMOVE_EDGES = False
+    REMOVE_EDGES = False  # default False
 
-    main(input=INPUT_DF, min_len=MIN_LEN, remove_edges = REMOVE_EDGES)
+    main(input=INPUT_DF, min_len=MIN_LEN)

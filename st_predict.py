@@ -4,6 +4,7 @@ from glob import glob
 from typing import Iterable
 
 import matplotlib.pyplot as plt
+
 # noinspection PyUnresolvedReferences
 import mpl_scatter_density
 import numpy as np
@@ -21,7 +22,12 @@ import streamlit as st
 import tensorflow as tf
 import umap.umap_ as umap
 from hdbscan import HDBSCAN
-from matplotlib.ticker import (AutoMinorLocator, FixedFormatter, MaxNLocator, NullFormatter)
+from matplotlib.ticker import (
+    AutoMinorLocator,
+    FixedFormatter,
+    MaxNLocator,
+    NullFormatter,
+)
 from scipy.cluster import hierarchy
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.mixture import GaussianMixture
@@ -298,7 +304,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
 
 
 @st.cache
-def _pca(features, embed_into_n_components=None):
+def _pca(features, cluster_labels, embed_into_n_components="auto"):
     """
     Calculates the PCA of raw input features.
 
@@ -306,12 +312,16 @@ def _pca(features, embed_into_n_components=None):
         features (np.ndarray)
         embed_into_n_components (int or None)
     """
-    if embed_into_n_components is None:
+    if embed_into_n_components is "auto":
         embed_into_n_components = features.shape[-1]
     pca = sklearn.decomposition.PCA(n_components=embed_into_n_components)
     pca_features = pca.fit_transform(features)
     explained_var = np.cumsum(np.round(pca.explained_variance_ratio_, 3))
-    return pca_features, explained_var
+
+    centers = lib.math.cluster_centers(
+        features[cluster_labels != -1], cluster_labels[cluster_labels != -1]
+    )
+    return pca_features, explained_var, centers
 
 
 @st.cache
@@ -371,6 +381,7 @@ def _cluster_gmm(features, n_clusters):
     centers = clf.means_
     return labels, centers
 
+
 @timeit
 @st.cache
 def _cluster_hdbscan(features, min_cluster_size, merge_limit):
@@ -389,9 +400,11 @@ def _cluster_hdbscan(features, min_cluster_size, merge_limit):
     )
     clf.fit_predict(features)
     labels = clf.labels_
+
     # Calculate centers but not on outlier label
-    centers = lib.math.cluster_centers(features[labels!=-1],
-                                       labels[labels!=-1])
+    centers = lib.math.cluster_centers(
+        features[labels != -1], labels[labels != -1]
+    )
     return labels, centers
 
 
@@ -426,10 +439,10 @@ def _resample_traces(traces, length, normalize):
     if normalize:
         new = []
         for trace in traces_re:
-            t = trace / trace.max(axis=(0, 1))
-            t -= trace.min(axis=(0, 1))
+            # t = trace / np.max(np.abs(trace), axis = (0,1))
+            t = (trace - np.max(trace)) / (np.max(trace) - np.min(trace))
+            t -= t.min(axis = (0))
             new.append(t)
-
         traces_re = np.array(new)
     return traces_re
 
@@ -516,7 +529,7 @@ def _plot_scatter(
     subsample=False,
     density=False,
     scalebar=False,
-    names = None,
+    names=None,
 ):
     """
     Plots lower dimensional embedding with predicted cluster labels.
@@ -589,7 +602,7 @@ def _plot_scatter(
     if density:
         xx, yy, zz = _calculate_kde(f0, f1)
         density_cmap = "coolwarm" if cluster_labels is None else "Greys"
-        ax.contour(xx, yy, np.exp(zz), cmap=density_cmap, alpha=0.70, levels = 10)
+        ax.contour(xx, yy, np.exp(zz), cmap=density_cmap, alpha=0.70, levels=10)
 
     ax.set_xlabel("C0")
     ax.set_ylabel("C1")
@@ -637,6 +650,7 @@ def _plot_traces_preview(
     mu,
     sg,
     colors,
+    show_id,
 ):
     """
     Plots a subset of clustered traces for inspection
@@ -653,6 +667,7 @@ def _plot_traces_preview(
         mu (float or np.ndarray)
         sg (float or np.ndarray)
         colors (list of str)
+        show_id (bool)
     """
     X_true, X_pred, mse, sample_indices = sklearn.utils.shuffle(
         X_true, X_pred, mse, sample_indices
@@ -672,9 +687,12 @@ def _plot_traces_preview(
 
         rng = range(len(xi_true))
 
+        title = "E = {:.2f}, L = {}\n".format(ei, len(xi_true))
+        if show_id:
+            title += "idx = {}\n".format(idx)
+
         ax.set_title(
-            "E = {:.2f}, L = {}\n" "idx = {}\n".format(ei, len(xi_true), idx),
-            fontsize=8,
+            title, fontsize=8,
         )
         ax.set_xticks(())
 
@@ -718,50 +736,97 @@ def _plot_traces_preview(
 
 
 @timeit
-def _dendrogram_trace_plot(X, cluster_labels, cluster_centers):
+def _overview_plot(
+    X_true, X_pred, cluster_labels, cluster_centers, mu_train, sigma_train
+):
     """
     Plots dendrogram (left) and mean traces (right)
 
     Args:
-        X (np.ndarray)
+        X_true (np.ndarray)
+        X_pred (np.ndarray)
         cluster_labels (np.ndarray)
         cluster_centers (np.ndarray)
+        mu_train (float)
+        sigma_train (float)
     """
     n_timeseries = len(set(cluster_labels))
 
-    fig, axes = lib.plotting.dendrogram_ts_layout(n_timeseries=n_timeseries)
+    fig, ax_left, axes_ts, axes_right = lib.plotting.dendrogram_multi_ts_layout(
+        n_timeseries_types=n_timeseries, n_sub_grid=5, return_extra_column=True
+    )
 
     z = lib.math.hierachical_linkage(cluster_centers)
     d = hierarchy.dendrogram(
         z,
-        ax=axes[0],
+        ax=ax_left,
         orientation="left",
         color_threshold=0,
         above_threshold_color="black",
     )
     mean_trace_idx = np.array(list(reversed(d["ivl"])), dtype=int)
 
-    traces_groups = _resample_clustered_traces(
-        X=X, cluster_labels=cluster_labels, resample_length=150,
-    )
+    n_total = len(X_true)
 
-    for n, idx in enumerate(mean_trace_idx):
-        ax = axes[n+1]  # skip first (dendrogram)
-        clrs = ["black", "red", "blue"]
+    X_true_group, X_pred_group = [], []
+    for i in np.unique(cluster_labels):
+        (label_idx,) = np.where(cluster_labels == i)
+        X_true_group.append(X_true[label_idx])
+        X_pred_group.append(X_pred[label_idx])
 
-        traces = traces_groups[idx]
-        channels = traces.shape[-1]
+        n = len(X_true[label_idx])
+        p = n / n_total * 100
 
+        st.write("**Cluster {}:** N = {} ({:.1f} %)".format(i, n, p))
+
+    channels = X_true[0].shape[-1]
+
+    # Calculate colormap for each trace background
+    lmin = min(cluster_labels[cluster_labels != -1])
+    lmax = max(cluster_labels[cluster_labels != -1])
+    label_cmap = plt.get_cmap("viridis_r", lmax - lmin + 1).colors
+    label_cmap[:, -1] = 0.25  # lower alpha
+
+    clrs = ["black", "red", "blue"]
+    for i, idx in enumerate(mean_trace_idx):
+        sub_axes = axes_ts[i]
+        X_true_batch = X_true_group[idx]
+        X_pred_batch = X_pred_group[idx]
+
+        rlen = 35
+        X_pred_mean = _resample_traces(
+            traces=np.array(X_pred_batch), length=rlen, normalize=True
+        )
         for c in range(channels):
-            t = traces[..., c]
-            lib.plotting.plot_timeseries_percentile(
-                t,
-                ax=ax,
-                color=clrs[c],
-                min_percentile=50 - 15,
-                max_percentile=50 + 15,
-                n_percentiles=10,
-            )
+            try:
+                lib.plotting.plot_timeseries_percentile(
+                    X_pred_mean[..., c],
+                    ax=axes_right[i],
+                    color=clrs[c],
+                    min_percentile=15,
+                    max_percentile=85,
+                    n_percentiles=15,
+                )
+            except IndexError:
+                pass
+
+        axes_right[i].set_facecolor(label_cmap[idx])
+        axes_right[i].set_xlim(0, rlen)
+
+        for j, ax in enumerate(sub_axes):
+            xi_true = X_true_batch[j] * sigma_train + mu_train
+            xi_pred = X_pred_batch[j] * sigma_train + mu_train
+
+            rng = range(len(xi_true))
+
+            # Plot per channels
+            for c in range(channels):
+                ax.plot(rng, xi_true[:, c], color=clrs[c], alpha=0.6, lw=0.75)
+                try:
+                    ax.plot(rng, xi_pred[:, c], color=clrs[c], alpha=1, lw=0.8)
+                except IndexError:
+                    pass
+
     svg_write(fig)
 
 
@@ -775,7 +840,7 @@ def _resample_clustered_traces(X, cluster_labels, resample_length):
         cluster_labels (np.ndarray)
     """
     traces = []
-    for i in list(set(cluster_labels)):
+    for i in np.unique(cluster_labels):
         (label_idx,) = np.where(cluster_labels == i)
         t = _resample_traces(
             X[label_idx], length=resample_length, normalize=True,
@@ -989,13 +1054,49 @@ def main():
         model_name + "___clust__" + st_selected_data_name + "__cidx.h5"
     )
 
-    umap_savename = model_name + "___umap__" + st_selected_data_name
-
-    # Calculate UMAP embedding
-    umap_enc = _umap_embedding(
-        features=encodings, embed_into_n_components=10, savename=umap_savename
+    feature_type = ("UMAP-projected", "Non-reduced")
+    st_clust_on_type = st.sidebar.radio(
+        label="Cluster on data type...", options=feature_type, index=0
     )
-    umap_enc_orig = umap_enc.copy()
+
+    # Cluster on UMAP features
+    if st_clust_on_type == feature_type[0]:
+        st_clust_dim = st.sidebar.number_input(
+            min_value=1,
+            max_value=encodings.shape[-1],
+            value=2,
+            label="Clustering dimensionality",
+        )
+
+        umap_clust_savename = (
+            model_name
+            + "___umap_dim={}__".format(st_clust_dim)
+            + st_selected_data_name
+        )
+        cluster_features = _umap_embedding(
+            features=encodings,
+            embed_into_n_components=st_clust_dim,
+            savename=umap_clust_savename,
+        )
+        cluster_features_orig = cluster_features.copy()
+
+    # Cluster on non-reduced features
+    elif st_clust_on_type == feature_type[1]:
+        cluster_features = encodings
+        cluster_features_orig = encodings.copy()
+    else:
+        raise NotImplementedError
+
+    # No matter which type of clustering, always plot a UMAP because it's the best way to visualize
+    umap_plot_savename = (
+        model_name + "___umap_dim={}__".format(2) + st_selected_data_name
+    )
+    plotting_features = _umap_embedding(
+        features=encodings,
+        embed_into_n_components=2,
+        savename=umap_plot_savename,
+    )
+    plotting_features_orig = plotting_features.copy()
 
     # Original number of samples, before filtering
     len_X_true_prefilter = len(X_true)
@@ -1006,8 +1107,8 @@ def main():
     # UMAP generated from whole manifold, but cluster only above certain length
     st_min_length = st.sidebar.number_input(
         min_value=1,
-        max_value=100,
-        value=20,
+        max_value=int(max(arr_lens)),
+        value=30,
         label="Minimum length of data to cluster",
         key="st_min_length",
     )
@@ -1020,35 +1121,65 @@ def main():
         key="st_max_mse",
     )
 
-    pre_filtered_labels = np.zeros(len(umap_enc_orig)).astype(int)
+    pre_filtered_labels = np.zeros(len(cluster_features_orig)).astype(int)
     pre_filtered_labels.fill(0)
 
     # Remove all traces below minimum length from clustering
     (len_above_idx,) = np.where(arr_lens >= st_min_length)
-    X_true, X_pred, encodings, umap_enc, mse, indices, = get_index(
-        (X_true, X_pred, encodings, umap_enc, mse, indices), index=len_above_idx
+    (
+        X_true,
+        X_pred,
+        encodings,
+        cluster_features,
+        plotting_features,
+        mse,
+        indices,
+    ) = get_index(
+        (
+            X_true,
+            X_pred,
+            encodings,
+            cluster_features,
+            plotting_features,
+            mse,
+            indices,
+        ),
+        index=len_above_idx,
     )
     pre_filtered_labels[len_above_idx] = 1
 
     # Remove all traces above max error from clustering
     (mse_below_idx,) = np.where(mse <= st_max_mse)
-    X_true, X_pred, encodings, umap_enc, mse, indices, = get_index(
-        (X_true, X_pred, encodings, umap_enc, mse, indices), index=mse_below_idx
+    (
+        X_true,
+        X_pred,
+        encodings,
+        cluster_features,
+        plotting_features,
+        mse,
+        indices,
+    ) = get_index(
+        (
+            X_true,
+            X_pred,
+            encodings,
+            cluster_features,
+            plotting_features,
+            mse,
+            indices,
+        ),
+        index=mse_below_idx,
     )
     pre_filtered_labels[mse_below_idx] = 1
 
-    pca, explained_var = _pca(features=encodings, embed_into_n_components=None)
-    _plot_explained_variance(explained_variance=explained_var)
-
     clustering_methods = ("HDBSCAN + UMAP", "Gaussian Mixture Model", "K-means")
-
     st_clust_method = st.sidebar.radio(
         label="Clustering method", options=clustering_methods, index=0
     )
 
     if st_clust_method == clustering_methods[0]:
         st_clust_minsize = st.sidebar.number_input(
-            label="Minimum cluster size", value=300
+            label="Minimum cluster size", value=300, min_value=25,
         )
         st_clust_mergethres = st.sidebar.number_input(
             label="Merge threshold (Increase to merge)",
@@ -1057,17 +1188,24 @@ def main():
             max_value=1.0,
         )
         clabels, centers = _cluster_hdbscan(
-            features=umap_enc,
+            features=cluster_features,
             min_cluster_size=st_clust_minsize,
             merge_limit=st_clust_mergethres,
         )
+
+        if len(centers) == 0:
+            st.warning(
+                "HDBSCAN could not find any clusters. "
+                "Try lowering the number of datapoints per cluster."
+            )
+            return
 
     elif st_clust_method == clustering_methods[1]:
         st_clust_n = st.sidebar.number_input(
             label="Number of clusters", value=3
         )
         clabels, centers = _cluster_gmm(
-            features=umap_enc, n_clusters=st_clust_n
+            features=cluster_features, n_clusters=st_clust_n
         )
 
     elif st_clust_method == clustering_methods[2]:
@@ -1075,10 +1213,13 @@ def main():
             label="Number of clusters", value=3
         )
         clabels, centers = _cluster_kmeans(
-            features=umap_enc, n_clusters=st_clust_n
+            features=cluster_features, n_clusters=st_clust_n
         )
     else:
         raise NotImplementedError
+
+    pca, explained_var, pca_centers = _pca(features = encodings, cluster_labels = clabels)
+    _plot_explained_variance(explained_variance = explained_var)
 
     _plot_cluster_label_distribution(cluster_labels=clabels)
     _plot_length_dist(
@@ -1088,37 +1229,34 @@ def main():
     )
     st.subheader("UMAP displaying length and error cutoff filter")
     _plot_scatter(
-        features=umap_enc_orig[:, [0, 1]], cluster_labels=pre_filtered_labels, density=True, names = ["remove", "keep"]
+        features=plotting_features_orig[:, [0, 1]],
+        cluster_labels=pre_filtered_labels,
+        density=True,
+        names=["remove", "keep"],
     )
 
     st.subheader("UMAP displaying density map")
-    _plot_scatter(features=umap_enc[:, [0, 1]], density=True, scalebar=True)
+    _plot_scatter(
+        features=plotting_features[:, [0, 1]], density=True, scalebar=True
+    )
 
     st.subheader("UMAP after clustering on filtered")
-    _plot_scatter(features=umap_enc[:, [0, 1]], cluster_labels=clabels, density=True)
+    _plot_scatter(
+        features=plotting_features[:, [0, 1]],
+        cluster_labels=clabels,
+        density=True,
+    )
 
     st.subheader("PCA after clustering on filtered")
     _plot_scatter(
         features=pca[:, [0, 1]], cluster_labels=clabels,
     )
 
-    st.subheader("Euclidian distance relationship")
-    # umap_centers = lib.math.cluster_centers(
-    #     features=umap_enc[clabels != -1][:, [0, 1]], labels=clabels[clabels != -1]
-    # )
-    _dendrogram_trace_plot(
-        X=X_true[clabels != -1],
-        cluster_labels=clabels[clabels != -1],
-        cluster_centers=centers,
-    )
-
     n_clusters = len(set(clabels[clabels != -1]))
     len_X_true_postfilter = len(X_true[clabels != -1])
     colormap = lib.plotting.get_colors("viridis", n_colors=n_clusters)
 
-    st.subheader(
-        "Total number of traces in dataset\n(Tracks also removed during clustering)"
-    )
+    st.subheader("Stats")
     st.write(
         "**Pre-filter:** N = {}\n"
         "**Post-filter:** N = {}\n"
@@ -1128,19 +1266,30 @@ def main():
             1 - len_X_true_postfilter / len_X_true_prefilter,
         )
     )
+    st.write("**Left:** Dendrogram based on distances in UMAP")
+    st.write("**Center:** Preview of traces")
+    st.write("**Right:** Average predicted trend for cluster")
+    _overview_plot(
+        X_true=X_true[clabels != -1],
+        X_pred=X_pred[clabels != -1],
+        cluster_labels=clabels[clabels != -1],
+        cluster_centers=centers,
+        mu_train=mu_train,
+        sigma_train=sg_train,
+    )
 
     st_nrows = st.sidebar.number_input(
         min_value=2,
-        max_value=6,
-        value=5,
+        max_value=8,
+        value=6,
         label="Rows of traces to show",
         key="st_n_rows",
     )
 
     st_ncols = st.sidebar.number_input(
         min_value=2,
-        max_value=6,
-        value=5,
+        max_value=8,
+        value=6,
         label="Columns of traces to show",
         key="st_n_cols",
     )
@@ -1153,8 +1302,12 @@ def main():
         label="Separate y-axis for traces", value=False, key="st_separate_y"
     )
 
+    st_show_id = st.sidebar.checkbox(
+        label="Show trace ID", value=False, key="st_show_id",
+    )
+
     if not st.checkbox(
-        label="Check when you're happy with clustering",
+        label="Check when you're happy with clustering to inspect in detail",
         value=False,
         key="st_checkbox_3",
     ):
@@ -1211,6 +1364,7 @@ def main():
             mu=mu_train,
             sg=sg_train,
             colors=["black", "red", "blue"],
+            show_id=st_show_id,
         )
 
     cluster_indexer = pd.concat(cluster_indexer, sort=False)
