@@ -169,27 +169,17 @@ def _latest_model(model_dir, recency=1):
 
 
 def _get_encoding_layer(
-    autoencoder, encoding_layer_names=("encoded", "z_sample", "z_mu"),
+    autoencoder, encoded_layer="z_mu",
 ):
     """
-    Gets the encoding layer from a model.
+    Gets the encoding layer from a model. More names can be added to the list to ensure
+    compatibility with experimental models
 
     Args:
         autoencoder (Model)
-        encoding_layer_names (Iterable[str])
+        encoded_layer (str)
     """
-    encoder = None
-    for name in encoding_layer_names:
-        try:
-            encoder = Model(
-                inputs=autoencoder.input,
-                outputs=autoencoder.get_layer(name).output,
-            )
-        except ValueError:
-            continue
-    if encoder is None:
-        raise ValueError("No matching encoding layers found")
-    return encoder
+    return Model(inputs=autoencoder.input, outputs=autoencoder.get_layer(encoded_layer).output)
 
 
 def _predict(X_true, idx_true, model_path, savename, single_feature):
@@ -207,9 +197,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
     """
     # See if there's a cached version
     try:
-        f = np.load(
-            os.path.join(lib.globals.encodings_dir, savename), allow_pickle=True
-        )
+        f = np.load(os.path.join(lib.globals.encodings_dir, savename), allow_pickle=True)
         X_true, X_pred, features, mse, indices = (
             f["X_true"],
             f["X_pred"],
@@ -223,8 +211,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
         latest_model_path = _latest_model(model_path)
 
         autoencoder = keras.models.load_model(
-            latest_model_path,
-            custom_objects={"gelu": gelu, "f1_m": lib.math.f1_m},
+            latest_model_path, custom_objects={"gelu": gelu, "f1_m": lib.math.f1_m},
         )
 
         encoder = _get_encoding_layer(autoencoder)
@@ -269,9 +256,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
                 xi_pred = autoencoder.predict_on_batch(_xi_true)
 
                 # Calculate error of reconstruction
-                ei = lib.math.mean_squared_error(
-                    xi_true.numpy(), xi_pred.numpy(), axis=(1, 2)
-                )
+                ei = lib.math.mean_squared_error(xi_true.numpy(), xi_pred.numpy(), axis=(1, 2))
             except ValueError:
                 xi_pred = _xi_true
                 ei = np.zeros(xi_true.shape[0])
@@ -282,9 +267,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
             features.extend(np.array(fi))
             mse.extend(np.array(ei))
 
-        X_true, X_pred, features, mse = map(
-            np.array, (X_true, X_pred, features, mse)
-        )
+        X_true, X_pred, features, mse = map(np.array, (X_true, X_pred, features, mse))
 
     np.savez(
         os.path.join(lib.globals.encodings_dir, savename),
@@ -296,9 +279,7 @@ def _predict(X_true, idx_true, model_path, savename, single_feature):
     )
 
     if not st._is_running_with_streamlit:
-        print(
-            "Predictions done. You can stop the script now and run streamlit to visualize."
-        )
+        print("Predictions done. You can stop the script now and run streamlit to visualize.")
 
     return X_true, X_pred, features, mse, indices
 
@@ -402,9 +383,7 @@ def _cluster_hdbscan(features, min_cluster_size, merge_limit):
     labels = clf.labels_
 
     # Calculate centers but not on outlier label
-    centers = lib.math.cluster_centers(
-        features[labels != -1], labels[labels != -1]
-    )
+    centers = lib.math.cluster_centers(features[labels != -1], labels[labels != -1])
     return labels, centers
 
 
@@ -431,17 +410,13 @@ def _resample_traces(traces, length, normalize):
         length (int)
         normalize (bool)
     """
-    traces_re = np.array(
-        parmap.map(
-            lib.math.resample_timeseries, traces, length, pm_processes=16
-        )
-    )
+    traces_re = np.array(parmap.map(lib.math.resample_timeseries, traces, length, pm_processes=16))
     if normalize:
         new = []
         for trace in traces_re:
             # t = trace / np.max(np.abs(trace), axis = (0,1))
             t = (trace - np.max(trace)) / (np.max(trace) - np.min(trace))
-            t -= t.min(axis = (0))
+            t -= t.min(axis=(0))
             new.append(t)
         traces_re = np.array(new)
     return traces_re
@@ -455,9 +430,7 @@ def _save_cluster_sample_indices(cluster_sample_indices, savename):
         cluster_sample_indices (pd.DataFrame)
         savename (str)
     """
-    cluster_sample_indices.to_hdf(
-        os.path.join(lib.globals.cluster_idx_dir, savename), key="df"
-    )
+    cluster_sample_indices.to_hdf(os.path.join(lib.globals.cluster_idx_dir, savename), key="df")
 
 
 def _find_peaks(X, n_frames=3, n_std=2):
@@ -495,11 +468,7 @@ def _clath_aux_peakfinder(X):
     has_peak, has_no_peak = _find_peaks(X)
     st.write("{} traces with peaks".format(has_peak))
     st.write("{} traces with no peaks".format(has_no_peak))
-    st.write(
-        "{:.1f} % of traces have peaks".format(
-            has_peak / (has_peak + has_no_peak) * 100
-        )
-    )
+    st.write("{:.1f} % of traces have peaks".format(has_peak / (has_peak + has_no_peak) * 100))
 
 
 def _plot_explained_variance(explained_variance):
@@ -510,9 +479,7 @@ def _plot_explained_variance(explained_variance):
         explained_variance (np.ndarray)
     """
     fig, ax = plt.subplots()
-    ax.plot(
-        np.arange(1, len(explained_variance) + 1, 1), explained_variance, "o-"
-    )
+    ax.plot(np.arange(1, len(explained_variance) + 1, 1), explained_variance, "o-")
     ax.set_xlabel("Number of components")
     ax.set_ylabel("Explained variance")
     ax.set_ylim(0, 1)
@@ -524,12 +491,7 @@ def _plot_explained_variance(explained_variance):
 
 @timeit
 def _plot_scatter(
-    features,
-    cluster_labels=None,
-    subsample=False,
-    density=False,
-    scalebar=False,
-    names=None,
+    features, cluster_labels=None, subsample=False, density=False, scalebar=False, names=None,
 ):
     """
     Plots lower dimensional embedding with predicted cluster labels.
@@ -544,9 +506,7 @@ def _plot_scatter(
     """
     f, cl = features, cluster_labels
     if subsample:
-        f, cl = sklearn.utils.resample(
-            f, cl, n_samples=subsample, replace=False
-        )
+        f, cl = sklearn.utils.resample(f, cl, n_samples=subsample, replace=False)
     f0, f1 = f[:, 0], f[:, 1]
 
     fig = plt.figure()
@@ -565,20 +525,13 @@ def _plot_scatter(
 
         # Plot clusters and labels
         ax.scatter_density(
-            f0[cl != -1],
-            f1[cl != -1],
-            c=cl[cl != -1],
-            cmap=label_cmap,
-            dpi=20,
-            alpha=0.85,
+            f0[cl != -1], f1[cl != -1], c=cl[cl != -1], cmap=label_cmap, dpi=20, alpha=0.85,
         )
 
         # Try to plot outliers if supported by clustering methodcalculated
         # else ignore
         try:
-            ax.scatter_density(
-                f0[cl == -1], f1[cl == -1], color="grey", alpha=0.75, dpi=20
-            )
+            ax.scatter_density(f0[cl == -1], f1[cl == -1], color="grey", alpha=0.75, dpi=20)
         except ValueError:
             pass
 
@@ -593,9 +546,7 @@ def _plot_scatter(
                 ctr_name = i
 
             ax.annotate(
-                xy=m,
-                s=ctr_name,
-                bbox=dict(boxstyle="square", fc="w", ec="grey", alpha=0.9),
+                xy=m, s=ctr_name, bbox=dict(boxstyle="square", fc="w", ec="grey", alpha=0.9),
             )
 
     # Plot density contour overlay
@@ -669,9 +620,7 @@ def _plot_traces_preview(
         colors (list of str)
         show_id (bool)
     """
-    X_true, X_pred, mse, sample_indices = sklearn.utils.shuffle(
-        X_true, X_pred, mse, sample_indices
-    )
+    X_true, X_pred, mse, sample_indices = sklearn.utils.shuffle(X_true, X_pred, mse, sample_indices)
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
     axes = axes.ravel()
@@ -736,9 +685,7 @@ def _plot_traces_preview(
 
 
 @timeit
-def _overview_plot(
-    X_true, X_pred, cluster_labels, cluster_centers, mu_train, sigma_train
-):
+def _overview_plot(X_true, X_pred, cluster_labels, cluster_centers, mu_train, sigma_train):
     """
     Plots dendrogram (left) and mean traces (right)
 
@@ -758,11 +705,7 @@ def _overview_plot(
 
     z = lib.math.hierachical_linkage(cluster_centers)
     d = hierarchy.dendrogram(
-        z,
-        ax=ax_left,
-        orientation="left",
-        color_threshold=0,
-        above_threshold_color="black",
+        z, ax=ax_left, orientation="left", color_threshold=0, above_threshold_color="black",
     )
     mean_trace_idx = np.array(list(reversed(d["ivl"])), dtype=int)
 
@@ -794,9 +737,7 @@ def _overview_plot(
         X_pred_batch = X_pred_group[idx]
 
         rlen = 35
-        X_pred_mean = _resample_traces(
-            traces=np.array(X_pred_batch), length=rlen, normalize=True
-        )
+        X_pred_mean = _resample_traces(traces=np.array(X_pred_batch), length=rlen, normalize=True)
         for c in range(channels):
             try:
                 lib.plotting.plot_timeseries_percentile(
@@ -842,9 +783,7 @@ def _resample_clustered_traces(X, cluster_labels, resample_length):
     traces = []
     for i in np.unique(cluster_labels):
         (label_idx,) = np.where(cluster_labels == i)
-        t = _resample_traces(
-            X[label_idx], length=resample_length, normalize=True,
-        )
+        t = _resample_traces(X[label_idx], length=resample_length, normalize=True,)
         traces.append(t)
     return traces
 
@@ -862,9 +801,7 @@ def _plot_length_dist(cluster_lengths, colors, single=False):
 
     if single:
         fig, ax = plt.subplots()
-        sns.distplot(
-            cluster_lengths, ax=ax, bins=bins, color=colors[0], norm_hist=False
-        )
+        sns.distplot(cluster_lengths, ax=ax, bins=bins, color=colors[0], norm_hist=False)
         ax.set_xlabel("Length")
         ax.set_ylabel("Number of samples")
         svg_write(fig)
@@ -905,11 +842,7 @@ def _plot_cluster_label_distribution(cluster_labels):
     bins = range(min(cluster_labels), max(cluster_labels) + 2)
     fig, ax = plt.subplots(figsize=(7, len(set(cluster_labels))))
     ax.hist(
-        cluster_labels,
-        bins=bins,
-        color="lightgrey",
-        rwidth=0.9,
-        orientation="horizontal",
+        cluster_labels, bins=bins, color="lightgrey", rwidth=0.9, orientation="horizontal",
     )
     ax.set_xlabel("Number of samples")
     ax.set_ylabel("Cluster ID")
@@ -946,13 +879,9 @@ def _plot_max_intensity(X, cluster_labels, n_rows_cols, colors, mu, sg):
     for i, ax in enumerate(axes):
         try:
             (label_idx,) = np.where(cluster_labels == i)
-            X_stat = np.array(
-                [np.max(x * sg + mu, axis=0) for x in X[label_idx]]
-            )
+            X_stat = np.array([np.max(x * sg + mu, axis=0) for x in X[label_idx]])
             # for c in range(X_stat.shape[-1]):
-            sns.distplot(
-                X_stat[:, 1], kde=True, ax=ax, color=colors[i], bins=bins
-            )
+            sns.distplot(X_stat[:, 1], kde=True, ax=ax, color=colors[i], bins=bins)
             ax.set_yticks(())
             ax.set_xlabel("Intensity")
             ax.set_title("{}".format(i))
@@ -970,21 +899,14 @@ def main():
     # starts when debugging
     print()
     model_dir = ["None"]
-    model_dir += sorted(
-        glob(os.path.join(lib.globals.models_dir, "*")), reverse=True
-    )
+    model_dir += sorted(glob(os.path.join(lib.globals.models_dir, "*")), reverse=True)
     if model_dir is "None":
         return
 
-    data_dir = sorted(
-        glob(os.path.join(lib.globals.data_preprocessed_dir, "*.npz"))
-    )
+    data_dir = sorted(glob(os.path.join(lib.globals.data_preprocessed_dir, "*.npz")))
 
     st_model_path = st.selectbox(
-        options=model_dir,
-        index=0,
-        label="Select model",
-        format_func=os.path.basename,
+        options=model_dir, index=0, label="Select model", format_func=os.path.basename,
     )
 
     # Find the dataset that the model was trained on
@@ -1002,9 +924,7 @@ def main():
         single_feature = None
 
     st_selected_data_path = st.selectbox(
-        label="Select dataset to predict on\n(default: {})".format(
-            default_data_path
-        ),
+        label="Select dataset to predict on\n(default: {})".format(default_data_path),
         options=data_dir,
         index=default_data_idx,
         format_func=os.path.basename,
@@ -1042,17 +962,13 @@ def main():
         if "source" in df.columns:
             multi_index_names = list(df["source"].unique())
             if len(multi_index_names) > 1:
-                st.write(
-                    "**Multi-index file found**\nDataset is composed of the following:"
-                )
+                st.write("**Multi-index file found**\nDataset is composed of the following:")
                 for name in multi_index_names:
                     st.code(name)
     except FileNotFoundError:
         pass
 
-    cluster_savename = (
-        model_name + "___clust__" + st_selected_data_name + "__cidx.h5"
-    )
+    cluster_savename = model_name + "___clust__" + st_selected_data_name + "__cidx.h5"
 
     feature_type = ("UMAP-projected", "Non-reduced")
     st_clust_on_type = st.sidebar.radio(
@@ -1062,21 +978,14 @@ def main():
     # Cluster on UMAP features
     if st_clust_on_type == feature_type[0]:
         st_clust_dim = st.sidebar.number_input(
-            min_value=1,
-            max_value=encodings.shape[-1],
-            value=2,
-            label="Clustering dimensionality",
+            min_value=1, max_value=encodings.shape[-1], value=2, label="Clustering dimensionality",
         )
 
         umap_clust_savename = (
-            model_name
-            + "___umap_dim={}__".format(st_clust_dim)
-            + st_selected_data_name
+            model_name + "___umap_dim={}__".format(st_clust_dim) + st_selected_data_name
         )
         cluster_features = _umap_embedding(
-            features=encodings,
-            embed_into_n_components=st_clust_dim,
-            savename=umap_clust_savename,
+            features=encodings, embed_into_n_components=st_clust_dim, savename=umap_clust_savename,
         )
         cluster_features_orig = cluster_features.copy()
 
@@ -1088,13 +997,9 @@ def main():
         raise NotImplementedError
 
     # No matter which type of clustering, always plot a UMAP because it's the best way to visualize
-    umap_plot_savename = (
-        model_name + "___umap_dim={}__".format(2) + st_selected_data_name
-    )
+    umap_plot_savename = model_name + "___umap_dim={}__".format(2) + st_selected_data_name
     plotting_features = _umap_embedding(
-        features=encodings,
-        embed_into_n_components=2,
-        savename=umap_plot_savename,
+        features=encodings, embed_into_n_components=2, savename=umap_plot_savename,
     )
     plotting_features_orig = plotting_features.copy()
 
@@ -1126,48 +1031,16 @@ def main():
 
     # Remove all traces below minimum length from clustering
     (len_above_idx,) = np.where(arr_lens >= st_min_length)
-    (
-        X_true,
-        X_pred,
-        encodings,
-        cluster_features,
-        plotting_features,
-        mse,
-        indices,
-    ) = get_index(
-        (
-            X_true,
-            X_pred,
-            encodings,
-            cluster_features,
-            plotting_features,
-            mse,
-            indices,
-        ),
+    (X_true, X_pred, encodings, cluster_features, plotting_features, mse, indices,) = get_index(
+        (X_true, X_pred, encodings, cluster_features, plotting_features, mse, indices,),
         index=len_above_idx,
     )
     pre_filtered_labels[len_above_idx] = 1
 
     # Remove all traces above max error from clustering
     (mse_below_idx,) = np.where(mse <= st_max_mse)
-    (
-        X_true,
-        X_pred,
-        encodings,
-        cluster_features,
-        plotting_features,
-        mse,
-        indices,
-    ) = get_index(
-        (
-            X_true,
-            X_pred,
-            encodings,
-            cluster_features,
-            plotting_features,
-            mse,
-            indices,
-        ),
+    (X_true, X_pred, encodings, cluster_features, plotting_features, mse, indices,) = get_index(
+        (X_true, X_pred, encodings, cluster_features, plotting_features, mse, indices,),
         index=mse_below_idx,
     )
     pre_filtered_labels[mse_below_idx] = 1
@@ -1182,10 +1055,7 @@ def main():
             label="Minimum cluster size", value=300, min_value=25,
         )
         st_clust_mergethres = st.sidebar.number_input(
-            label="Merge threshold (Increase to merge)",
-            value=0.0,
-            min_value=0.0,
-            max_value=1.0,
+            label="Merge threshold (Increase to merge)", value=0.0, min_value=0.0, max_value=1.0,
         )
         clabels, centers = _cluster_hdbscan(
             features=cluster_features,
@@ -1201,25 +1071,17 @@ def main():
             return
 
     elif st_clust_method == clustering_methods[1]:
-        st_clust_n = st.sidebar.number_input(
-            label="Number of clusters", value=3
-        )
-        clabels, centers = _cluster_gmm(
-            features=cluster_features, n_clusters=st_clust_n
-        )
+        st_clust_n = st.sidebar.number_input(label="Number of clusters", value=3)
+        clabels, centers = _cluster_gmm(features=cluster_features, n_clusters=st_clust_n)
 
     elif st_clust_method == clustering_methods[2]:
-        st_clust_n = st.sidebar.number_input(
-            label="Number of clusters", value=3
-        )
-        clabels, centers = _cluster_kmeans(
-            features=cluster_features, n_clusters=st_clust_n
-        )
+        st_clust_n = st.sidebar.number_input(label="Number of clusters", value=3)
+        clabels, centers = _cluster_kmeans(features=cluster_features, n_clusters=st_clust_n)
     else:
         raise NotImplementedError
 
-    pca, explained_var, pca_centers = _pca(features = encodings, cluster_labels = clabels)
-    _plot_explained_variance(explained_variance = explained_var)
+    pca, explained_var, pca_centers = _pca(features=encodings, cluster_labels=clabels)
+    _plot_explained_variance(explained_variance=explained_var)
 
     _plot_cluster_label_distribution(cluster_labels=clabels)
     _plot_length_dist(
@@ -1236,15 +1098,11 @@ def main():
     )
 
     st.subheader("UMAP displaying density map")
-    _plot_scatter(
-        features=plotting_features[:, [0, 1]], density=True, scalebar=True
-    )
+    _plot_scatter(features=plotting_features[:, [0, 1]], density=True, scalebar=True)
 
     st.subheader("UMAP after clustering on filtered")
     _plot_scatter(
-        features=plotting_features[:, [0, 1]],
-        cluster_labels=clabels,
-        density=True,
+        features=plotting_features[:, [0, 1]], cluster_labels=clabels, density=True,
     )
 
     st.subheader("PCA after clustering on filtered")
@@ -1279,19 +1137,11 @@ def main():
     )
 
     st_nrows = st.sidebar.number_input(
-        min_value=2,
-        max_value=8,
-        value=6,
-        label="Rows of traces to show",
-        key="st_n_rows",
+        min_value=2, max_value=8, value=6, label="Rows of traces to show", key="st_n_rows",
     )
 
     st_ncols = st.sidebar.number_input(
-        min_value=2,
-        max_value=8,
-        value=6,
-        label="Columns of traces to show",
-        key="st_n_cols",
+        min_value=2, max_value=8, value=6, label="Columns of traces to show", key="st_n_cols",
     )
 
     st_plot_real_values = st.sidebar.checkbox(
@@ -1302,9 +1152,7 @@ def main():
         label="Separate y-axis for traces", value=False, key="st_separate_y"
     )
 
-    st_show_id = st.sidebar.checkbox(
-        label="Show trace ID", value=False, key="st_show_id",
-    )
+    st_show_id = st.sidebar.checkbox(label="Show trace ID", value=False, key="st_show_id",)
 
     if not st.checkbox(
         label="Check when you're happy with clustering to inspect in detail",
@@ -1326,21 +1174,15 @@ def main():
         # Index specifics for each cluster label
         len_i = [len(xi) for xi in X_true[cidx]]
 
-        mse_i, X_true_i, X_pred_i, indices_i = get_index(
-            (mse, X_true, X_pred, indices), index=cidx
-        )
+        mse_i, X_true_i, X_pred_i, indices_i = get_index((mse, X_true, X_pred, indices), index=cidx)
 
-        cluster_indexer.append(
-            pd.DataFrame({"cluster": [idx] * len(indices_i), "id": indices_i})
-        )
+        cluster_indexer.append(pd.DataFrame({"cluster": [idx] * len(indices_i), "id": indices_i}))
 
         percentage_of_samples.append(percentage)
         lengths_in_cluster.append(len_i)
 
         st.subheader(
-            "Predictions for {} (N = {} ({:.1f} %))".format(
-                idx, len(X_true_i), percentage
-            )
+            "Predictions for {} (N = {} ({:.1f} %))".format(idx, len(X_true_i), percentage)
         )
         # if X_pred_i[0].shape[-1] == 2:
         #     _clath_aux_peakfinder(X_true_i)
@@ -1369,9 +1211,7 @@ def main():
 
     cluster_indexer = pd.concat(cluster_indexer, sort=False)
 
-    _save_cluster_sample_indices(
-        cluster_sample_indices=cluster_indexer, savename=cluster_savename
-    )
+    _save_cluster_sample_indices(cluster_sample_indices=cluster_indexer, savename=cluster_savename)
 
     st.subheader("Cluster length distributions")
     _plot_length_dist(
