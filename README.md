@@ -1,8 +1,8 @@
-LSTM Variational Autoencoders for Time Series Data
+### LSTM Variational Autoencoders for Time Series Data
 
 This repository contains implementations of LSTM-based autoencoders and bidirectional LSTM VAEs designed to encode variable-length time series into latent spaces. These latent representations can be used for tasks such as clustering, anomaly detection, and feature extraction. The models leverage TensorFlow and TensorFlow Probability for robust and scalable neural network architectures.
 
-Note that this code has never been published, or tested extensively, and is provided as-is.
+*Note that this code has never been published, or tested extensively after its initial release, and is provided as-is.*
 
 ### What does it do?
 
