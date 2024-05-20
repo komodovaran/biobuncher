@@ -1,3 +1,15 @@
+LSTM Variational Autoencoders for Time Series Data
+
+This repository contains implementations of LSTM-based autoencoders and bidirectional LSTM VAEs designed to encode variable-length time series into latent spaces. These latent representations can be used for tasks such as clustering, anomaly detection, and feature extraction. The models leverage TensorFlow and TensorFlow Probability for robust and scalable neural network architectures.
+
+Note that this code has never been published, or tested extensively, and is provided as-is.
+
+### What does it do?
+
+Uses LSTM VAE to easily categorize data with absolute minimal knowledge about the data.
+
+<img width="679" alt="Screenshot 2024-05-20 at 16 33 50" src="https://github.com/komodovaran/biobuncher/assets/20357875/4f2f6ccd-5fc4-4143-aeaf-fb557da207f1">
+
 ### Setup (tested on linux only!)
 1. Install conda and a conda environment. Conda installation instructions for
 Linux can be found on the website, as well as how to create an environment.
